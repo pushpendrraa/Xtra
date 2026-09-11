@@ -4,14 +4,18 @@ import { MapPin, Weight, Box, Clock, Zap, DollarSign, Leaf, Sparkles, ShieldChec
 import { useNavigate } from 'react-router-dom'
 import { PageShell } from '../../components/layout/Shell'
 import { GlassCard } from '../../components/ui'
+import { LocationPicker, LocationData } from '../../components/ui/LocationPicker'
 
 const SHIPMENT_TYPES = ['General', 'Fragile', 'Refrigerated', 'Hazmat']
 
 export default function PostShipment() {
   const navigate = useNavigate()
+  
+  // Use LocationData for pickup/dropoff
+  const [pickup, setPickup] = useState<LocationData>({ lat: 0, lng: 0, label: '' })
+  const [dropoff, setDropoff] = useState<LocationData>({ lat: 0, lng: 0, label: '' })
+  
   const [form, setForm] = useState({
-    pickup: 'Andheri West, Mumbai',
-    dropoff: 'Hadapsar, Pune',
     weightKg: 500,
     volumeM3: 4,
     type: 'General',
@@ -19,6 +23,7 @@ export default function PostShipment() {
     notes: '',
   })
   const [submitted, setSubmitted] = useState(false)
+  const [error, setError] = useState('')
 
   const urgency = (() => {
     if (!form.deadline) return null
@@ -37,24 +42,19 @@ export default function PostShipment() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    
+    if (!pickup.lat || !dropoff.lat) {
+      setError('Please select valid locations for pickup and dropoff (using map or GPS).')
+      return
+    }
+    
+    setError('')
     setSubmitted(true)
     
     try {
-      // Mock coordinates for demo purposes (Mumbai to Pune)
-      const isPune = form.dropoff.toLowerCase().includes('pune')
-      const isDelhi = form.pickup.toLowerCase().includes('delhi')
-      
       const payload = {
-        pickup: { 
-          lat: isDelhi ? 28.6139 : 19.0760, 
-          lng: isDelhi ? 77.2090 : 72.8777, 
-          label: form.pickup 
-        },
-        dropoff: { 
-          lat: isPune ? 18.5204 : (isDelhi ? 28.4595 : 18.5204), 
-          lng: isPune ? 73.8567 : (isDelhi ? 77.0266 : 73.8567), 
-          label: form.dropoff 
-        },
+        pickup,
+        dropoff,
         weightKg: form.weightKg,
         volumeM3: form.volumeM3,
         shipmentType: form.type.toLowerCase(),
@@ -70,14 +70,15 @@ export default function PostShipment() {
       
       // Show the scanning animation for a bit
       await new Promise((r) => setTimeout(r, 2500))
+      navigate('/shipper')
     } catch (err) {
       console.error('Failed to post shipment:', err)
+      setError('Failed to post shipment. Please try again.')
+      setSubmitted(false)
     }
-    
-    navigate('/shipper')
   }
 
-  if (submitted) {
+  if (submitted && !error) {
     return (
       <PageShell title="Finding Matches">
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', gap: 20 }}>
@@ -89,7 +90,7 @@ export default function PostShipment() {
           <div style={{ textAlign: 'center' }}>
             <h2 style={{ fontWeight: 800 }}>Scanning Empty-Leg Fleet…</h2>
             <p style={{ color: 'var(--text-secondary)', marginTop: 6, fontSize: '0.92rem' }}>
-              Xtra AI is matching your cargo with empty return haulers on the Mumbai–Pune expressway
+              Xtra AI is matching your cargo with empty return haulers on the {pickup.label?.split(',')[0]}–{dropoff.label?.split(',')[0]} corridor
             </p>
           </div>
         </div>
@@ -100,6 +101,11 @@ export default function PostShipment() {
   return (
     <PageShell title="Post Shipment" subtitle="Match with empty-leg return carriers">
       <form onSubmit={handleSubmit} style={{ width: '100%' }}>
+        {error && (
+          <div style={{ background: 'rgba(225, 29, 72, 0.1)', color: 'var(--rose)', padding: '12px 16px', borderRadius: 8, marginBottom: 20, fontSize: '0.9rem', fontWeight: 600 }}>
+            {error}
+          </div>
+        )}
         <div className="responsive-split-2">
 
           {/* Left Column: Form Fields */}
@@ -110,29 +116,20 @@ export default function PostShipment() {
               <p style={{ fontWeight: 700, fontSize: '0.95rem', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
                 <MapPin size={18} color="var(--teal)" /> Route Locations
               </p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                <div className="input-group">
-                  <label className="input-label">Pickup Location</label>
-                  <input
-                    className="input-field teal"
-                    type="text"
-                    placeholder="Andheri West, Mumbai"
-                    required
-                    value={form.pickup}
-                    onChange={(e) => setForm((p) => ({ ...p, pickup: e.target.value }))}
-                  />
-                </div>
-                <div className="input-group">
-                  <label className="input-label">Dropoff Location</label>
-                  <input
-                    className="input-field teal"
-                    type="text"
-                    placeholder="Hadapsar, Pune"
-                    required
-                    value={form.dropoff}
-                    onChange={(e) => setForm((p) => ({ ...p, dropoff: e.target.value }))}
-                  />
-                </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <LocationPicker
+                  label="Pickup Location"
+                  value={pickup}
+                  onChange={setPickup}
+                  placeholder="Select pickup city or drop pin"
+                />
+                
+                <LocationPicker
+                  label="Dropoff Location"
+                  value={dropoff}
+                  onChange={setDropoff}
+                  placeholder="Select destination city or drop pin"
+                />
               </div>
             </GlassCard>
 

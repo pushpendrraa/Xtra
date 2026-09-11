@@ -5,65 +5,22 @@ import { useNavigate } from 'react-router-dom'
 import { PageShell } from '../../components/layout/Shell'
 import { GlassCard } from '../../components/ui'
 import { api } from '../../services/api'
+import { LocationPicker, LocationData } from '../../components/ui/LocationPicker'
 
 const VEHICLE_TYPES = ['Mini Truck', 'Tata Ace', 'Mahindra Bolero', 'Eicher 17ft', 'Eicher 20ft', 'Container 40ft']
 const CARGO_FEATURES = ['Refrigerated', 'Fragile Handling', 'Hazmat Certified', 'Open Body', 'Closed Body']
-
-// ── City coordinate lookup (expandable) ──────────────────────────
-// Maps city name keywords → [lat, lng]
-const CITY_COORDS: Record<string, [number, number]> = {
-  'mumbai':     [19.0760, 72.8777],
-  'pune':       [18.5204, 73.8567],
-  'delhi':      [28.6139, 77.2090],
-  'gurgaon':    [28.4595, 77.0266],
-  'gurugram':   [28.4595, 77.0266],
-  'bangalore':  [12.9716, 77.5946],
-  'bengaluru':  [12.9716, 77.5946],
-  'hyderabad':  [17.3850, 78.4867],
-  'chennai':    [13.0827, 80.2707],
-  'kolkata':    [22.5726, 88.3639],
-  'ahmedabad':  [23.0225, 72.5714],
-  'surat':      [21.1702, 72.8311],
-  'jaipur':     [26.9124, 75.7873],
-  'lucknow':    [26.8467, 80.9462],
-  'nagpur':     [21.1458, 79.0882],
-  'indore':     [22.7196, 75.8577],
-  'bhopal':     [23.2599, 77.4126],
-  'chandigarh': [30.7333, 76.7794],
-  'patna':      [25.5941, 85.1376],
-  'kochi':      [9.9312,  76.2673],
-  'coimbatore': [11.0168, 76.9558],
-  'nashik':     [19.9975, 73.7898],
-  'vadodara':   [22.3072, 73.1812],
-  'agra':       [27.1767, 78.0081],
-  'varanasi':   [25.3176, 82.9739],
-  'thane':      [19.2183, 72.9781],
-  'andheri':    [19.1136, 72.8697],
-  'bandra':     [19.0596, 72.8295],
-  'vashi':      [19.0773, 73.0060],
-}
-
-/**
- * Fuzzy-match a typed city string to known coordinates.
- * Returns [lat, lng] or a default (Delhi) if not found.
- */
-function resolveCoords(cityStr: string): [number, number] {
-  const lower = cityStr.toLowerCase()
-  for (const [key, coords] of Object.entries(CITY_COORDS)) {
-    if (lower.includes(key)) return coords
-  }
-  // Default fallback — center of India
-  return [20.5937, 78.9629]
-}
 
 export default function PostListing() {
   const navigate = useNavigate()
   const [submitted, setSubmitted] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
+
+  // Use precise LocationData for origin/destination
+  const [origin, setOrigin] = useState<LocationData>({ lat: 0, lng: 0, label: '' })
+  const [destination, setDestination] = useState<LocationData>({ lat: 0, lng: 0, label: '' })
+
   const [form, setForm] = useState({
-    origin: 'Mumbai Central',
-    destination: 'Pune MIDC',
     vehicleType: 'Eicher 17ft',
     weightKg: 2500,
     volumeM3: 16,
@@ -96,25 +53,19 @@ export default function PostListing() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!origin.lat || !destination.lat) {
+      setError('Please select valid locations for origin and destination (using map or GPS).')
+      return
+    }
+
     setError('')
     setSubmitted(true)
 
     try {
-      const [originLat, originLng]  = resolveCoords(form.origin)
-      const [destLat,   destLng]    = resolveCoords(form.destination)
-
       const now = new Date()
       const payload = {
-        origin: {
-          lat:   originLat,
-          lng:   originLng,
-          label: form.origin,
-        },
-        destination: {
-          lat:   destLat,
-          lng:   destLng,
-          label: form.destination,
-        },
+        origin,
+        destination,
         vehicleType:          form.vehicleType,
         availableWeightKg:    form.weightKg,
         availableVolumeM3:    form.volumeM3,
@@ -131,9 +82,8 @@ export default function PostListing() {
         features: form.features.map(f =>
           f === 'Refrigerated'     ? 'refrigerated'  :
           f === 'Hazmat Certified' ? 'hazmat_certified' :
-          f.toLowerCase().replace(/\s+/g, '_')
+          f === 'Open Body'        ? 'open_body'     : 'closed_body'
         ),
-        autoAccept: false,
       }
 
       await api.post('/api/capacity-listings', payload)
@@ -148,23 +98,22 @@ export default function PostListing() {
     }
   }
 
-  if (submitted) return (
-    <PageShell title="Posting Capacity">
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', gap: 20 }}>
+  if (submitted && !error) return (
+    <PageShell title="Processing">
+      <div style={{ padding: '60px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
         <motion.div
-          initial={{ scale: 0 }}
-          animate={{ scale: 1 }}
-          transition={{ type: 'spring', stiffness: 300, damping: 18 }}
-          style={{ width: 80, height: 80, borderRadius: '50%', background: 'linear-gradient(135deg, var(--emerald), #059669)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2rem', color: '#fff', boxShadow: '0 8px 24px rgba(5,150,105,0.35)' }}
+          initial={{ scale: 0.8, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ type: 'spring', bounce: 0.5 }}
+          style={{ width: 80, height: 80, borderRadius: '50%', background: 'var(--emerald)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 24, boxShadow: '0 8px 32px rgba(16, 185, 129, 0.4)' }}
         >
-          ✓
+          <CheckCircle2 size={40} color="white" />
         </motion.div>
-        <div style={{ textAlign: 'center' }}>
-          <h2 style={{ fontWeight: 800, marginBottom: 6 }}>Return Leg Capacity Listed!</h2>
-          <p style={{ color: 'var(--text-secondary)' }}>Matching engine is pairing your truck with active shipper loads…</p>
-        </div>
-        {/* Animated route line */}
-        <motion.div style={{ width: 280, height: 4, borderRadius: 4, background: 'var(--glass-border)', overflow: 'hidden' }}>
+        <h2 style={{ fontSize: '1.8rem', fontWeight: 800, marginBottom: 12 }}>Listing Published</h2>
+        <p style={{ color: 'var(--text-secondary)', maxWidth: 400 }}>
+          Your empty return leg is now active. We are matching it with shipper loads.
+        </p>
+        <motion.div style={{ marginTop: 40, width: 280, height: 4, background: 'var(--glass-border)', borderRadius: 4, overflow: 'hidden', position: 'relative' }}>
           <motion.div
             initial={{ x: -280 }}
             animate={{ x: 280 }}
@@ -172,7 +121,7 @@ export default function PostListing() {
             style={{ width: 120, height: '100%', background: 'linear-gradient(90deg, transparent, var(--emerald), transparent)', borderRadius: 4 }}
           />
         </motion.div>
-        <p style={{ color: 'var(--text-tertiary)', fontSize: '0.8rem' }}>Scanning {form.origin} → {form.destination}</p>
+        <p style={{ color: 'var(--text-tertiary)', fontSize: '0.8rem', marginTop: 12 }}>Scanning {origin.label} → {destination.label}</p>
       </div>
     </PageShell>
   )
@@ -196,29 +145,20 @@ export default function PostListing() {
               <p style={{ fontWeight: 700, fontSize: '0.95rem', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
                 <MapPin size={18} color="var(--indigo)" /> Empty Return Route
               </p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                <div className="input-group">
-                  <label className="input-label">Origin City / Hub</label>
-                  <input
-                    className="input-field"
-                    type="text"
-                    placeholder="Mumbai Central"
-                    required
-                    value={form.origin}
-                    onChange={e => setForm(p => ({ ...p, origin: e.target.value }))}
-                  />
-                </div>
-                <div className="input-group">
-                  <label className="input-label">Destination City / Hub</label>
-                  <input
-                    className="input-field"
-                    type="text"
-                    placeholder="Pune MIDC"
-                    required
-                    value={form.destination}
-                    onChange={e => setForm(p => ({ ...p, destination: e.target.value }))}
-                  />
-                </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <LocationPicker
+                  label="Origin Hub"
+                  value={origin}
+                  onChange={setOrigin}
+                  placeholder="Select pickup city or drop pin"
+                />
+                
+                <LocationPicker
+                  label="Destination Hub"
+                  value={destination}
+                  onChange={setDestination}
+                  placeholder="Select destination city or drop pin"
+                />
               </div>
             </GlassCard>
 
