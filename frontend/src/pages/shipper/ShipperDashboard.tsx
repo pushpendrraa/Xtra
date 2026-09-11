@@ -1,20 +1,30 @@
+import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
-import { DollarSign, Package, Plus, CheckCircle2, Clock, XCircle } from 'lucide-react'
+import { DollarSign, Package, Plus, CheckCircle2, Clock, XCircle, Loader2 } from 'lucide-react'
 import { PageShell } from '../../components/layout/Shell'
 import { KPICard, SectionHeader } from '../../components/ui'
-import { MOCK_SHIPPER_KPI, MOCK_BOOKINGS } from '../../services/api'
+import { MOCK_SHIPPER_KPI, shipmentApi } from '../../services/api'
 import { useAuthStore } from '../../store/authStore'
 
 export default function ShipperDashboard() {
   const { user } = useAuthStore()
   const navigate = useNavigate()
+  const [shipments, setShipments] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  
   const kpi = MOCK_SHIPPER_KPI
   const hour = new Date().getHours()
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
 
-  // Using mock bookings to represent shipment requests and carrier acceptance status
-  const shipmentRequests = MOCK_BOOKINGS.slice(0, 4)
+  useEffect(() => {
+    shipmentApi.getMyRequests()
+      .then(res => {
+        setShipments(res.data || [])
+      })
+      .catch(err => console.error('Failed to fetch shipments:', err))
+      .finally(() => setLoading(false))
+  }, [])
 
   return (
     <PageShell>
@@ -50,51 +60,62 @@ export default function ShipperDashboard() {
         <div>
           <SectionHeader title="📋 My Shipment Requests" />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {shipmentRequests.map((req, i) => {
-              const isAccepted = req.status === 'in_transit' || req.status === 'delivered'
-              const isPending = req.status === 'pending'
+            {loading ? (
+              <div style={{ padding: 40, display: 'flex', justifyContent: 'center', color: 'var(--text-secondary)' }}>
+                <Loader2 size={24} className="animate-spin" />
+              </div>
+            ) : shipments.length === 0 ? (
+              <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-secondary)', background: 'var(--glass-white)', border: '1px solid var(--glass-border)', borderRadius: 'var(--r-xl)' }}>
+                No active shipment requests. Post a shipment to get started!
+              </div>
+            ) : (
+              shipments.map((req, i) => {
+                // req.status from DB: pending, matched, active, completed, cancelled
+                const isMatched = req.status === 'matched' || req.status === 'active' || req.status === 'completed'
+                const isPending = req.status === 'pending'
 
-              return (
-                <motion.div
-                  key={req.id}
-                  className="card card-shipper"
-                  style={{ padding: 20 }}
-                  initial={{ opacity: 0, x: -16 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: 0.15 + i * 0.05 }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 14 }}>
-                    
-                    {/* Route and Carrier Info */}
-                    <div>
-                      <div style={{ fontWeight: 800, fontSize: '1.1rem', color: 'var(--text-primary)' }}>
-                        {req.route.from} → {req.route.to}
+                return (
+                  <motion.div
+                    key={req._id || req.id}
+                    className="card card-shipper"
+                    style={{ padding: 20 }}
+                    initial={{ opacity: 0, x: -16 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: 0.15 + i * 0.05 }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 14 }}>
+                      
+                      {/* Route Info */}
+                      <div>
+                        <div style={{ fontWeight: 800, fontSize: '1.1rem', color: 'var(--text-primary)' }}>
+                          {req.pickup?.label?.split(',')[0] || 'Pickup'} → {req.dropoff?.label?.split(',')[0] || 'Dropoff'}
+                        </div>
+                        <div style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', marginTop: 6, display: 'flex', gap: 16 }}>
+                          <span><span style={{ opacity: 0.7 }}>Weight:</span> {req.weightKg} kg</span>
+                          <span><span style={{ opacity: 0.7 }}>Volume:</span> {req.volumeM3} m³</span>
+                        </div>
+                        <div style={{ color: 'var(--text-tertiary)', fontSize: '0.8rem', marginTop: 4 }}>
+                          Type: <span style={{ textTransform: 'capitalize' }}>{req.shipmentType}</span> | Expected: ₹{req.expectedPrice}
+                        </div>
                       </div>
-                      <div style={{ color: 'var(--text-secondary)', fontSize: '0.88rem', marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ opacity: 0.7 }}>Carrier:</span> 
-                        <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{req.driver}</span>
+                      
+                      {/* Acceptance Status Badge */}
+                      <div style={{ 
+                        display: 'inline-flex', alignItems: 'center', gap: 8, 
+                        padding: '8px 14px', borderRadius: 24, fontSize: '0.82rem', fontWeight: 800,
+                        background: isMatched ? '#ECFDF5' : (isPending ? '#FFFBEB' : '#FEF2F2'),
+                        color: isMatched ? 'var(--emerald)' : (isPending ? '#D97706' : '#EF4444'),
+                        border: `1px solid ${isMatched ? '#A7F3D0' : (isPending ? '#FDE68A' : '#FECACA')}`
+                      }}>
+                        {isMatched ? <CheckCircle2 size={16} /> : (isPending ? <Clock size={16} /> : <XCircle size={16} />)}
+                        {isMatched ? 'Matched / Active' : (isPending ? 'Pending Match' : 'Cancelled')}
                       </div>
-                      <div style={{ color: 'var(--text-tertiary)', fontSize: '0.8rem', marginTop: 2 }}>
-                        Vehicle: {req.vehicle}
-                      </div>
-                    </div>
-                    
-                    {/* Acceptance Status Badge */}
-                    <div style={{ 
-                      display: 'inline-flex', alignItems: 'center', gap: 8, 
-                      padding: '8px 14px', borderRadius: 24, fontSize: '0.82rem', fontWeight: 800,
-                      background: isAccepted ? '#ECFDF5' : (isPending ? '#FFFBEB' : '#FEF2F2'),
-                      color: isAccepted ? 'var(--emerald)' : (isPending ? '#D97706' : '#EF4444'),
-                      border: `1px solid ${isAccepted ? '#A7F3D0' : (isPending ? '#FDE68A' : '#FECACA')}`
-                    }}>
-                      {isAccepted ? <CheckCircle2 size={16} /> : (isPending ? <Clock size={16} /> : <XCircle size={16} />)}
-                      {isAccepted ? 'Accepted' : (isPending ? 'Pending Carrier' : 'Not Accepted')}
-                    </div>
 
-                  </div>
-                </motion.div>
-              )
-            })}
+                    </div>
+                  </motion.div>
+                )
+              })
+            )}
           </div>
         </div>
 

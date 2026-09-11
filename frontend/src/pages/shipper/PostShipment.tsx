@@ -112,7 +112,7 @@ export default function PostShipment() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
             {/* Route */}
-            <GlassCard variant="shipper" style={{ padding: 20 }}>
+            <GlassCard variant="shipper" style={{ padding: 20, zIndex: 50 }}>
               <p style={{ fontWeight: 700, fontSize: '0.95rem', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
                 <MapPin size={18} color="var(--teal)" /> Route Locations
               </p>

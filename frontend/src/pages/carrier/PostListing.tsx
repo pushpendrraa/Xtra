@@ -146,7 +146,7 @@ export default function PostListing() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
             {/* Route */}
-            <GlassCard variant="carrier" style={{ padding: 20 }}>
+            <GlassCard variant="carrier" style={{ padding: 20, zIndex: 50 }}>
               <p style={{ fontWeight: 700, fontSize: '0.95rem', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
                 <MapPin size={18} color="var(--indigo)" /> Empty Return Route
               </p>
