@@ -224,7 +224,7 @@ input, textarea, select { font-family: inherit; outline: none; }
   border-radius: var(--r-xl);
   padding: 20px;
   position: relative;
-  overflow: hidden;
+  /* overflow: hidden; removed to allow dropdowns to overflow */
   box-shadow: var(--shadow-sm);
   transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
 }

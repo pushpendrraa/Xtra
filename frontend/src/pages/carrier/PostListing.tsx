@@ -135,6 +135,11 @@ export default function PostListing() {
   return (
     <PageShell title="List Empty Capacity" subtitle="Turn empty deadhead miles into profit">
       <form onSubmit={handleSubmit} style={{ width: '100%' }}>
+        {error && (
+          <div style={{ background: 'rgba(225, 29, 72, 0.1)', color: 'var(--rose)', padding: '12px 16px', borderRadius: 8, marginBottom: 20, fontSize: '0.9rem', fontWeight: 600, border: '1px solid rgba(225,29,72,0.2)' }}>
+            {error}
+          </div>
+        )}
         <div className="responsive-split-2">
 
           {/* Left Column: Form Inputs */}
@@ -147,17 +152,21 @@ export default function PostListing() {
               </p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                 <LocationPicker
-                  label="Origin Hub"
+                  label="Origin Hub (your current position)"
                   value={origin}
                   onChange={setOrigin}
-                  placeholder="Select pickup city or drop pin"
+                  placeholder="Detecting your location…"
+                  autoGps
+                  allowMapClick
                 />
                 
                 <LocationPicker
                   label="Destination Hub"
                   value={destination}
                   onChange={setDestination}
-                  placeholder="Select destination city or drop pin"
+                  placeholder="Search & select destination city…"
+                  hideGps
+                  allowMapClick
                 />
               </div>
             </GlassCard>

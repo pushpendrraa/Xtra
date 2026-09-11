@@ -118,17 +118,21 @@ export default function PostShipment() {
               </p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                 <LocationPicker
-                  label="Pickup Location"
+                  label="Pickup Location (your current position)"
                   value={pickup}
                   onChange={setPickup}
-                  placeholder="Select pickup city or drop pin"
+                  placeholder="Detecting your location…"
+                  autoGps
+                  allowMapClick
                 />
                 
                 <LocationPicker
                   label="Dropoff Location"
                   value={dropoff}
                   onChange={setDropoff}
-                  placeholder="Select destination city or drop pin"
+                  placeholder="Search & select destination city…"
+                  hideGps
+                  allowMapClick
                 />
               </div>
             </GlassCard>
