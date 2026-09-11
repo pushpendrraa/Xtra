@@ -38,8 +38,43 @@ export default function PostShipment() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setSubmitted(true)
-    await new Promise((r) => setTimeout(r, 1000))
-    navigate('/shipper/matches')
+    
+    try {
+      // Mock coordinates for demo purposes (Mumbai to Pune)
+      const isPune = form.dropoff.toLowerCase().includes('pune')
+      const isDelhi = form.pickup.toLowerCase().includes('delhi')
+      
+      const payload = {
+        pickup: { 
+          lat: isDelhi ? 28.6139 : 19.0760, 
+          lng: isDelhi ? 77.2090 : 72.8777, 
+          label: form.pickup 
+        },
+        dropoff: { 
+          lat: isPune ? 18.5204 : (isDelhi ? 28.4595 : 18.5204), 
+          lng: isPune ? 73.8567 : (isDelhi ? 77.0266 : 73.8567), 
+          label: form.dropoff 
+        },
+        weightKg: form.weightKg,
+        volumeM3: form.volumeM3,
+        shipmentType: form.type.toLowerCase(),
+        earliestPickupTime: new Date().toISOString(),
+        deadline: form.deadline ? new Date(form.deadline).toISOString() : new Date(Date.now() + 24*3600*1000).toISOString(),
+        expectedPrice: estimatedDiscounted,
+        autoAccept: false,
+      }
+      
+      // Import shipmentApi dynamically if not imported at top
+      const { shipmentApi } = await import('../../services/api')
+      await shipmentApi.create(payload)
+      
+      // Show the scanning animation for a bit
+      await new Promise((r) => setTimeout(r, 2500))
+    } catch (err) {
+      console.error('Failed to post shipment:', err)
+    }
+    
+    navigate('/shipper')
   }
 
   if (submitted) {

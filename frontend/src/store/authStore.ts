@@ -32,7 +32,11 @@ export const useAuthStore = create<AuthState>()(
       token: null,
       activeRole: 'carrier',
       isAuthenticated: false,
-      login: (user, token) => set({ user, token, isAuthenticated: true, activeRole: user.roles[0] || 'carrier' }),
+      login: (user, token) => {
+        // Normalize: backend may return user.role (string) or user.roles (array)
+        const resolvedRole: Role = (user as any).role || user.roles?.[0] || 'carrier'
+        set({ user, token, isAuthenticated: true, activeRole: resolvedRole })
+      },
       logout: () => set({ user: null, token: null, isAuthenticated: false }),
       setRole: (role) => set({ activeRole: role }),
       setUser: (user) => set({ user }),

@@ -20,7 +20,6 @@ import { useThemeStore } from '../../store/themeStore'
 export const CARRIER_TABS = [
   { label: 'Home',      icon: LayoutDashboard, path: '/carrier' },
   { label: 'Listings',  icon: PlusCircle,       path: '/carrier/listings' },
-  { label: 'Matches',   icon: List,             path: '/carrier/matches' },
   { label: 'Bookings',  icon: MapPin,           path: '/carrier/bookings' },
   { label: 'Analytics', icon: BarChart3,        path: '/carrier/analytics' },
 ]

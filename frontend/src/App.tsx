@@ -12,7 +12,6 @@ import AuthPage from './pages/auth/AuthPage'
 import CarrierDashboard from './pages/carrier/CarrierDashboard'
 import CarrierListings from './pages/carrier/CarrierListings'
 import PostListing from './pages/carrier/PostListing'
-import MatchOffers from './pages/carrier/MatchOffers'
 import ActiveBookings from './pages/carrier/ActiveBookings'
 import PODCapture from './pages/carrier/PODCapture'
 import CarrierAnalytics from './pages/carrier/CarrierAnalytics'
@@ -33,14 +32,18 @@ function RequireAuth() {
 // Guard: redirect to dashboard if already logged in
 function RequireGuest() {
   const { isAuthenticated, user, activeRole } = useAuthStore()
-  return isAuthenticated ? <Navigate to={`/${user?.roles?.[0] || activeRole}`} replace /> : <Outlet />
+  // Support both user.roles[] (array) and user.role (string) from backend
+  const role = (user as any)?.role || user?.roles?.[0] || activeRole
+  return isAuthenticated ? <Navigate to={`/${role}`} replace /> : <Outlet />
 }
 
-// Guard: restrict by role
+// Guard: restrict by role — prevents shipper accessing /carrier and vice versa
 function RequireRole({ role }: { role: 'carrier' | 'shipper' }) {
   const { user, activeRole } = useAuthStore()
-  const userRole = user?.roles?.[0] || activeRole
-  return userRole === role ? <Outlet /> : <Navigate to={`/${userRole}`} replace />
+  // Support both user.roles[] (array) and user.role (string) from backend
+  const userRole = (user as any)?.role || user?.roles?.[0] || activeRole
+  if (!userRole || userRole === role) return <Outlet />
+  return <Navigate to={`/${userRole}`} replace />
 }
 
 export default function App() {
@@ -62,7 +65,6 @@ export default function App() {
             <Route path="/carrier" element={<CarrierDashboard />} />
             <Route path="/carrier/listings" element={<CarrierListings />} />
             <Route path="/carrier/listings/new" element={<PostListing />} />
-            <Route path="/carrier/matches" element={<MatchOffers />} />
             <Route path="/carrier/bookings" element={<ActiveBookings />} />
             <Route path="/carrier/bookings/pod" element={<PODCapture />} />
             <Route path="/carrier/analytics" element={<CarrierAnalytics />} />

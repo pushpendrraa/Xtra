@@ -78,6 +78,43 @@ export const authApi = {
     api.get<{ status: string }>('/api/health').then((r) => r.data),
 }
 
+// ─── Shipment Requests API ───────────────────────────────────────
+
+export const shipmentApi = {
+  create: (payload: any) => 
+    api.post('/api/shipment-requests', payload).then((r) => r.data),
+    
+  getMyRequests: () => 
+    api.get('/api/shipment-requests').then((r) => r.data),
+}
+
+// ─── Capacity Listings API ───────────────────────────────────────
+
+export const listingApi = {
+  getMyListings: () =>
+    api.get('/api/capacity-listings').then((r) => r.data),
+}
+
+// ─── Matches API ─────────────────────────────────────────────────
+
+export const matchApi = {
+  getMyMatches: () =>
+    api.get('/api/matches').then((r) => r.data),
+    
+  acceptMatch: (id: string) =>
+    api.post(`/api/matches/${id}/accept`).then((r) => r.data),
+}
+
+// ─── Dashboard API ───────────────────────────────────────────────
+
+export const dashboardApi = {
+  getShipperDashboard: () =>
+    api.get('/api/dashboard/shipper').then(r => r.data),
+    
+  getShipperRecent: () =>
+    api.get('/api/dashboard/shipper/recent').then(r => r.data),
+}
+
 // ─── Mock Data ────────────────────────────────────────────────
 
 export const MOCK_USER = {

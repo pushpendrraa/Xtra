@@ -1,92 +1,217 @@
-import { useState } from 'react'
-import { motion } from 'framer-motion'
-import { Plus, MapPin, Clock, Truck, ChevronRight } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { Plus, MapPin, Clock, ChevronRight, Zap } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { PageShell } from '../../components/layout/Shell'
-import { GlassCard, StatusBadge, SectionHeader, EmptyState } from '../../components/ui'
-import { MOCK_LISTINGS } from '../../services/api'
+import { GlassCard, StatusBadge, EmptyState } from '../../components/ui'
+import { listingApi, matchApi } from '../../services/api'
+import { io, Socket } from 'socket.io-client'
+import { useAuthStore } from '../../store/authStore'
 
 export default function CarrierListings() {
   const navigate = useNavigate()
-  const [listings] = useState(MOCK_LISTINGS)
+  const { token } = useAuthStore()
+  
+  const [listings, setListings] = useState<any[]>([])
+  const [matches, setMatches] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [accepting, setAccepting] = useState<string | null>(null)
+  
+  // Real-time socket connection
+  useEffect(() => {
+    if (!token) return
+    
+    // Fetch initial state
+    Promise.all([
+      listingApi.getMyListings(),
+      matchApi.getMyMatches()
+    ]).then(([lRes, mRes]) => {
+      if (lRes.success) setListings(lRes.data)
+      if (mRes.success) setMatches(mRes.data)
+      setLoading(false)
+    }).catch(err => {
+      console.error('Failed to load listings/matches', err)
+      setLoading(false)
+    })
+
+    // Setup Socket.IO for real-time match push
+    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000'
+    const socket: Socket = io(API_URL, {
+      auth: { token },
+      withCredentials: true
+    })
+
+    socket.on('connect', () => {
+      console.log('Socket connected for matches')
+    })
+
+    socket.on('match:offer', (offer) => {
+      console.log('Received real-time match offer:', offer)
+      // Refresh matches from server to get full hydrated data
+      matchApi.getMyMatches().then(mRes => {
+        if (mRes.success) setMatches(mRes.data)
+      })
+    })
+
+    return () => {
+      socket.disconnect()
+    }
+  }, [token])
+
+  const handleAcceptMatch = async (matchId: string) => {
+    try {
+      setAccepting(matchId)
+      const res = await matchApi.acceptMatch(matchId)
+      if (res.success) {
+        // Remove the accepted match from this view (it moves to bookings)
+        setMatches(prev => prev.filter(m => m._id !== matchId))
+        // Show success, maybe navigate to bookings
+        navigate('/carrier/bookings')
+      }
+    } catch (err) {
+      console.error('Failed to accept match', err)
+      alert('Failed to accept match. It may have expired or been taken.')
+    } finally {
+      setAccepting(null)
+    }
+  }
 
   return (
-    <PageShell title="My Capacity Listings" subtitle="Active and scheduled empty-leg return routes">
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <PageShell title="My Capacity & Matches" subtitle="Manage your empty legs and incoming shipment requests">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 32 }}>
 
-        {/* CTA Banner */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 14 }}>
-          <div>
-            <h3 style={{ fontSize: '1.1rem', fontWeight: 800 }}>Listed Empty Legs</h3>
-            <p style={{ fontSize: '0.84rem', color: 'var(--text-secondary)' }}>
-              Listed routes are continuously analyzed by Xtra's empty-leg matching engine.
-            </p>
-          </div>
-          <button
-            className="btn btn-primary"
-            onClick={() => navigate('/carrier/post-listing')}
-          >
-            <Plus size={18} /> Post New Return Leg
-          </button>
-        </div>
-
-        {listings.length === 0 && (
-          <EmptyState
-            icon="🚛"
-            title="No listings yet"
-            body="Post your first empty capacity listing to start matching automatically with shippers."
-          />
-        )}
-
-        <div className="responsive-cards-grid">
-          {listings.map((l, i) => (
-            <motion.div
-              key={l.id}
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.08 }}
+        {/* ─── Upper Section: Current Empty Listings ─── */}
+        <section>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <h3 style={{ fontSize: '1.2rem', fontWeight: 800 }}>Listed Empty Legs</h3>
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={() => navigate('/carrier/listings/new')}
             >
-              <GlassCard
-                variant="carrier"
-                style={{ padding: 20, cursor: 'pointer', height: '100%', display: 'flex', flexDirection: 'column' }}
-                onClick={() => navigate('/carrier/matches')}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                      <MapPin size={16} color="var(--indigo)" />
-                      <span style={{ fontWeight: 800, fontSize: '1.05rem', color: 'var(--text-primary)' }}>{l.origin}</span>
-                      <span style={{ color: 'var(--text-tertiary)' }}>→</span>
-                      <span style={{ fontWeight: 800, fontSize: '1.05rem', color: 'var(--text-primary)' }}>{l.destination}</span>
+              <Plus size={16} /> Post New Return Leg
+            </button>
+          </div>
+
+          {loading ? (
+            <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-secondary)' }}>Loading listings...</div>
+          ) : listings.length === 0 ? (
+            <EmptyState
+              icon="🚛"
+              title="No active listings"
+              body="Post your first empty capacity listing to start receiving load offers automatically."
+            />
+          ) : (
+            <div className="responsive-cards-grid">
+              {listings.map((l, i) => (
+                <motion.div key={l._id} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.08 }}>
+                  <GlassCard variant="carrier" style={{ padding: 20, height: '100%', display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                          <MapPin size={16} color="var(--indigo)" />
+                          <span style={{ fontWeight: 800, fontSize: '1.05rem', color: 'var(--text-primary)' }}>{l.origin?.label || 'Origin'}</span>
+                          <span style={{ color: 'var(--text-tertiary)' }}>→</span>
+                          <span style={{ fontWeight: 800, fontSize: '1.05rem', color: 'var(--text-primary)' }}>{l.destination?.label || 'Destination'}</span>
+                        </div>
+                        <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>{l.vehicleType}</div>
+                      </div>
+                      <StatusBadge status={l.status} />
                     </div>
-                    <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>{l.vehicle}</div>
-                  </div>
-                  <StatusBadge status={l.status} />
-                </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, padding: '12px 14px', background: 'var(--bg-deep)', borderRadius: 12, margin: '8px 0 14px' }}>
-                  <div>
-                    <div style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)', textTransform: 'uppercase' }}>Available Space</div>
-                    <div style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text-primary)' }}>{l.availableWeightKg} kg / {l.availableVolumeM3} m³</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)', textTransform: 'uppercase' }}>Price Floor</div>
-                    <div style={{ fontWeight: 800, fontSize: '0.95rem', color: 'var(--emerald)' }}>₹{l.priceFloor.toLocaleString()}</div>
-                  </div>
-                </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, padding: '12px 14px', background: 'var(--bg-deep)', borderRadius: 12, margin: '8px 0 14px' }}>
+                      <div>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)', textTransform: 'uppercase' }}>Available Space</div>
+                        <div style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text-primary)' }}>{l.availableWeightKg} kg / {l.availableVolumeM3} m³</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)', textTransform: 'uppercase' }}>Price Floor</div>
+                        <div style={{ fontWeight: 800, fontSize: '0.95rem', color: 'var(--emerald)' }}>₹{l.priceFloor?.toLocaleString()}</div>
+                      </div>
+                    </div>
+                  </GlassCard>
+                </motion.div>
+              ))}
+            </div>
+          )}
+        </section>
 
-                <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 10, borderTop: '1px solid var(--glass-border)' }}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                    <Clock size={14} color="var(--text-tertiary)" /> {l.departureWindow}
-                  </span>
-                  <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--indigo)', display: 'flex', alignItems: 'center', gap: 3 }}>
-                    Find Loads <ChevronRight size={14} />
-                  </span>
-                </div>
-              </GlassCard>
-            </motion.div>
-          ))}
-        </div>
+        {/* ─── Bottom/Right Section: Incoming Matches ─── */}
+        <section style={{ marginTop: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+            <h3 style={{ fontSize: '1.2rem', fontWeight: 800 }}>Incoming Matches & Requests</h3>
+            {matches.length > 0 && (
+              <span className="badge badge-indigo animate-pulse">
+                <Zap size={12} style={{ marginRight: 4 }} /> Live
+              </span>
+            )}
+          </div>
+
+          {!loading && matches.length === 0 ? (
+            <GlassCard style={{ padding: 40, textAlign: 'center', borderStyle: 'dashed' }}>
+              <div style={{ fontSize: '2rem', marginBottom: 12 }}>📡</div>
+              <h4 style={{ fontWeight: 700, marginBottom: 8 }}>Waiting for matches...</h4>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', maxWidth: 400, margin: '0 auto' }}>
+                Xtra's AI is actively scanning shipper requests. When a shipment matches your empty leg, it will appear here instantly.
+              </p>
+            </GlassCard>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 16 }}>
+              <AnimatePresence>
+                {matches.map((match, i) => (
+                  <motion.div
+                    key={match._id}
+                    initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.9 }}
+                    transition={{ delay: i * 0.05 }}
+                  >
+                    <GlassCard variant="carrier" style={{ padding: 20, border: '2px solid rgba(79, 70, 229, 0.4)', boxShadow: '0 8px 32px rgba(79, 70, 229, 0.15)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div>
+                          <div style={{ fontWeight: 800, fontSize: '1.1rem' }}>
+                            {match.shipmentId?.pickup?.label?.split(',')[0]} → {match.shipmentId?.dropoff?.label?.split(',')[0]}
+                          </div>
+                          <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: 4 }}>
+                            {match.shipmentId?.weightKg} kg · {match.shipmentId?.volumeM3} m³ · {match.shipmentId?.shipmentType}
+                          </div>
+                          <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: 4 }}>
+                            Shipper: {match.shipperId?.name}
+                          </div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontWeight: 800, fontSize: '1.4rem', color: 'var(--emerald)' }}>
+                            ₹{match.priceQuote?.toLocaleString()}
+                          </div>
+                          <div className="badge badge-indigo" style={{ marginTop: 6 }}>
+                            Score {(match.score * 100).toFixed(0)}%
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: 12, marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--glass-border)', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <Clock size={14} /> Detour: {match.detourKm?.toFixed(1)} km
+                        </span>
+                        <div style={{ marginLeft: 'auto' }}>
+                          <button 
+                            className="btn btn-primary btn-sm"
+                            disabled={accepting === match._id}
+                            onClick={() => handleAcceptMatch(match._id)}
+                            style={{ padding: '6px 14px' }}
+                          >
+                            {accepting === match._id ? 'Accepting...' : (
+                              <>Accept Offer <ChevronRight size={14}/></>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    </GlassCard>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
+            </div>
+          )}
+        </section>
 
       </div>
     </PageShell>
