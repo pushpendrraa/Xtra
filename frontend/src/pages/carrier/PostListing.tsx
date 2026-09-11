@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { MapPin, Truck, Calendar, DollarSign, CheckCircle2, Sparkles, TrendingUp } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
@@ -60,6 +60,7 @@ export default function PostListing() {
   const navigate = useNavigate()
   const [submitted, setSubmitted] = useState(false)
   const [error, setError] = useState('')
+  const [loading, setLoading] = useState(true)
   const [form, setForm] = useState({
     origin: 'Mumbai Central',
     destination: 'Pune MIDC',
@@ -72,6 +73,20 @@ export default function PostListing() {
     expectedArrivalTime: '',
     features: ['Closed Body'] as string[],
   })
+
+  // Prevent accessing if already have an active listing
+  useEffect(() => {
+    api.get('/api/capacity-listings')
+      .then(res => {
+        const hasActive = res.data.data.some((l: any) => ['open', 'partially_matched'].includes(l.status))
+        if (hasActive) {
+          navigate('/carrier/listings')
+        } else {
+          setLoading(false)
+        }
+      })
+      .catch(() => setLoading(false))
+  }, [navigate])
 
   const toggleFeature = (f: string) =>
     setForm(p => ({ ...p, features: p.features.includes(f) ? p.features.filter(x => x !== f) : [...p.features, f] }))
@@ -125,7 +140,7 @@ export default function PostListing() {
 
       // Brief pause so animation is visible
       await new Promise(r => setTimeout(r, 1200))
-      navigate('/carrier/matches')
+      navigate('/carrier/listings')
     } catch (err: any) {
       console.error('PostListing error:', err)
       setError(err?.response?.data?.message || 'Failed to post listing. Please try again.')
@@ -159,6 +174,12 @@ export default function PostListing() {
         </motion.div>
         <p style={{ color: 'var(--text-tertiary)', fontSize: '0.8rem' }}>Scanning {form.origin} → {form.destination}</p>
       </div>
+    </PageShell>
+  )
+
+  if (loading) return (
+    <PageShell title="List Empty Capacity">
+      <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-secondary)' }}>Checking eligibility...</div>
     </PageShell>
   )
 

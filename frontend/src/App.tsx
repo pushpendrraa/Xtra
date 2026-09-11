@@ -49,11 +49,9 @@ function RequireRole({ role }: { role: 'carrier' | 'shipper' }) {
 export default function App() {
   return (
     <Routes>
-      {/* Public */}
-      <Route path="/" element={<LandingPage />} />
-
-      {/* Auth — redirect to dashboard if already logged in */}
+      {/* Auth & Public — redirect to dashboard if already logged in */}
       <Route element={<RequireGuest />}>
+        <Route path="/" element={<LandingPage />} />
         <Route path="/auth" element={<AuthPage />} />
       </Route>
 

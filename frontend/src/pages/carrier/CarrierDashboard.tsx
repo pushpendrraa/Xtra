@@ -1,9 +1,10 @@
+import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { TrendingUp, Truck, Leaf, DollarSign, Plus, ChevronRight, Clock, ShieldCheck, ArrowUpRight } from 'lucide-react'
 import { PageShell } from '../../components/layout/Shell'
 import { KPICard, GlassCard, StatusBadge, SectionHeader } from '../../components/ui'
-import { MOCK_CARRIER_KPI, MOCK_BOOKINGS, MOCK_MATCH_OFFERS } from '../../services/api'
+import { api, MOCK_CARRIER_KPI, MOCK_BOOKINGS, MOCK_MATCH_OFFERS } from '../../services/api'
 import { useAuthStore } from '../../store/authStore'
 
 export default function CarrierDashboard() {
@@ -12,6 +13,16 @@ export default function CarrierDashboard() {
   const kpi = MOCK_CARRIER_KPI
   const hour = new Date().getHours()
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
+
+  const [hasActiveListing, setHasActiveListing] = useState(false)
+  
+  useEffect(() => {
+    api.get('/api/capacity-listings')
+      .then(res => {
+        setHasActiveListing(res.data.data.some((l: any) => ['open', 'partially_matched'].includes(l.status)))
+      })
+      .catch(console.error)
+  }, [])
 
   return (
     <PageShell>
@@ -31,14 +42,14 @@ export default function CarrierDashboard() {
 
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             <button
-              onClick={() => navigate('/carrier/listings/new')}
-              className="btn btn-primary"
-              style={{ boxShadow: '0 4px 16px rgba(79, 70, 229, 0.3)' }}
+              onClick={() => hasActiveListing ? navigate('/carrier/listings') : navigate('/carrier/listings/new')}
+              className={`btn ${hasActiveListing ? 'btn-outline' : 'btn-primary'}`}
+              style={{ boxShadow: hasActiveListing ? 'none' : '0 4px 16px rgba(79, 70, 229, 0.3)' }}
             >
-              <Plus size={18} /> Post Empty Leg
+              <Plus size={18} /> {hasActiveListing ? 'Manage Active Trip' : 'Post Empty Leg'}
             </button>
             <button
-              onClick={() => navigate('/carrier/matches')}
+              onClick={() => navigate('/carrier/listings')}
               className="btn btn-ghost"
             >
               View Matches <ArrowUpRight size={16} />
@@ -188,14 +199,18 @@ export default function CarrierDashboard() {
               </h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <button
-                  onClick={() => navigate('/carrier/listings/new')}
-                  className="btn btn-primary btn-full"
+                  onClick={() => hasActiveListing ? navigate('/carrier/listings') : navigate('/carrier/listings/new')}
+                  className={`btn ${hasActiveListing ? 'btn-outline' : 'btn-primary'} btn-full`}
                   style={{ justifyContent: 'flex-start', padding: '14px 18px' }}
                 >
                   <Plus size={18} />
                   <div style={{ textAlign: 'left', marginLeft: 6 }}>
-                    <div style={{ fontWeight: 700, fontSize: '0.92rem' }}>Post Empty Return Leg</div>
-                    <div style={{ fontSize: '0.72rem', opacity: 0.85 }}>Auto-match with shippers on your return route</div>
+                    <div style={{ fontWeight: 700, fontSize: '0.92rem' }}>
+                      {hasActiveListing ? 'Manage Active Trip' : 'Post Empty Return Leg'}
+                    </div>
+                    <div style={{ fontSize: '0.72rem', opacity: 0.85 }}>
+                      {hasActiveListing ? 'You already have an active route listed' : 'Auto-match with shippers on your return route'}
+                    </div>
                   </div>
                 </button>
 
