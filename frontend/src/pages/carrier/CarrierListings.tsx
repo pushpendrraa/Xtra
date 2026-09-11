@@ -76,6 +76,21 @@ export default function CarrierListings() {
     }
   }
 
+  const handleTerminateListing = async (id: string) => {
+    if (!confirm('Are you sure you want to terminate this listing?')) return
+    try {
+      const res = await listingApi.terminateListing(id)
+      if (res.success) {
+        setListings(prev => prev.map(l => l._id === id ? { ...l, status: 'cancelled' } : l))
+      }
+    } catch (err) {
+      console.error('Failed to terminate listing', err)
+      alert('Failed to terminate listing.')
+    }
+  }
+
+  const hasActiveListing = listings.some(l => ['open', 'partially_matched'].includes(l.status))
+
   return (
     <PageShell title="My Capacity & Matches" subtitle="Manage your empty legs and incoming shipment requests">
       <div style={{ display: 'flex', flexDirection: 'column', gap: 32 }}>
@@ -85,10 +100,12 @@ export default function CarrierListings() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <h3 style={{ fontSize: '1.2rem', fontWeight: 800 }}>Listed Empty Legs</h3>
             <button
-              className="btn btn-primary btn-sm"
+              className={`btn btn-sm ${hasActiveListing ? 'btn-outline' : 'btn-primary'}`}
               onClick={() => navigate('/carrier/listings/new')}
+              disabled={hasActiveListing}
+              title={hasActiveListing ? 'You already have an active listing' : ''}
             >
-              <Plus size={16} /> Post New Return Leg
+              <Plus size={16} /> {hasActiveListing ? 'Max 1 Active Listing' : 'Post New Return Leg'}
             </button>
           </div>
 
@@ -102,7 +119,7 @@ export default function CarrierListings() {
             />
           ) : (
             <div className="responsive-cards-grid">
-              {listings.map((l, i) => (
+              {listings.filter(l => !['cancelled', 'expired'].includes(l.status)).map((l, i) => (
                 <motion.div key={l._id} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.08 }}>
                   <GlassCard variant="carrier" style={{ padding: 20, height: '100%', display: 'flex', flexDirection: 'column' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
@@ -127,6 +144,31 @@ export default function CarrierListings() {
                         <div style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)', textTransform: 'uppercase' }}>Price Floor</div>
                         <div style={{ fontWeight: 800, fontSize: '0.95rem', color: 'var(--emerald)' }}>₹{l.priceFloor?.toLocaleString()}</div>
                       </div>
+                    </div>
+
+                    <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 10, borderTop: '1px solid var(--glass-border)' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                          <Clock size={14} color="var(--text-tertiary)" /> 
+                          <strong>Start:</strong> {new Date(l.departureWindowStart).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })}
+                        </span>
+                        {l.expectedArrivalTime && (
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                            <Clock size={14} color="var(--text-tertiary)" /> 
+                            <strong>Reach:</strong> {new Date(l.expectedArrivalTime).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })}
+                          </span>
+                        )}
+                      </div>
+                      
+                      {['open', 'partially_matched'].includes(l.status) && (
+                        <button
+                          className="btn btn-sm btn-outline"
+                          style={{ width: '100%', padding: '6px', fontSize: '0.8rem', color: 'var(--rose)', borderColor: 'rgba(244, 63, 94, 0.3)' }}
+                          onClick={() => handleTerminateListing(l._id)}
+                        >
+                          Terminate Trip
+                        </button>
+                      )}
                     </div>
                   </GlassCard>
                 </motion.div>

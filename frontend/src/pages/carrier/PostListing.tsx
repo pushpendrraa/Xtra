@@ -69,6 +69,7 @@ export default function PostListing() {
     priceFloor: 6500,
     departureWindowStart: '',
     departureWindowEnd: '',
+    expectedArrivalTime: '',
     features: ['Closed Body'] as string[],
   })
 
@@ -109,6 +110,9 @@ export default function PostListing() {
         departureWindowEnd: form.departureWindowEnd
           ? new Date(form.departureWindowEnd).toISOString()
           : new Date(now.getTime() + 8 * 3600 * 1000).toISOString(),
+        expectedArrivalTime: form.expectedArrivalTime
+          ? new Date(form.expectedArrivalTime).toISOString()
+          : undefined,
         features: form.features.map(f =>
           f === 'Refrigerated'     ? 'refrigerated'  :
           f === 'Hazmat Certified' ? 'hazmat_certified' :
@@ -237,21 +241,21 @@ export default function PostListing() {
               </div>
             </GlassCard>
 
-            {/* Departure Window */}
+            {/* Departure & Arrival Window */}
             <GlassCard variant="carrier" style={{ padding: 20 }}>
               <p style={{ fontWeight: 700, fontSize: '0.95rem', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Calendar size={18} color="var(--indigo)" /> Departure Window
+                <Calendar size={18} color="var(--indigo)" /> Schedule
               </p>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
                 <div className="input-group">
-                  <label className="input-label">Earliest departure</label>
+                  <label className="input-label">Expected Start (Origin)</label>
                   <input className="input-field" type="datetime-local" value={form.departureWindowStart}
-                    onChange={e => setForm(p => ({ ...p, departureWindowStart: e.target.value }))} />
+                    onChange={e => setForm(p => ({ ...p, departureWindowStart: e.target.value }))} required />
                 </div>
                 <div className="input-group">
-                  <label className="input-label">Latest departure</label>
-                  <input className="input-field" type="datetime-local" value={form.departureWindowEnd}
-                    onChange={e => setForm(p => ({ ...p, departureWindowEnd: e.target.value }))} />
+                  <label className="input-label">Expected Arrival (Dest)</label>
+                  <input className="input-field" type="datetime-local" value={form.expectedArrivalTime}
+                    onChange={e => setForm(p => ({ ...p, expectedArrivalTime: e.target.value }))} required />
                 </div>
               </div>
             </GlassCard>

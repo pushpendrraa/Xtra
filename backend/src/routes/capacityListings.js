@@ -17,6 +17,19 @@ const { sweepForMatches } = require('../services/matchingEngine')
 // POST /api/capacity-listings — Create a new empty-leg listing
 router.post('/', protect, async (req, res, next) => {
   try {
+    // 1) Check if carrier already has an active listing
+    const existingActive = await CapacityListing.findOne({
+      carrierId: req.user._id,
+      status: { $in: ['open', 'partially_matched'] }
+    })
+    
+    if (existingActive) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'You already have an active empty leg listing. Please terminate or complete it before posting a new one.' 
+      })
+    }
+
     const { origin, destination, ...rest } = req.body
     // origin/destination: { lat, lng, label }
 

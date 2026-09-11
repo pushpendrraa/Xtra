@@ -93,6 +93,9 @@ export const shipmentApi = {
 export const listingApi = {
   getMyListings: () =>
     api.get('/api/capacity-listings').then((r) => r.data),
+    
+  terminateListing: (id: string) =>
+    api.patch(`/api/capacity-listings/${id}/status`, { status: 'cancelled' }).then((r) => r.data),
 }
 
 // ─── Matches API ─────────────────────────────────────────────────

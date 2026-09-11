@@ -25,6 +25,7 @@ const capacityListingSchema = new mongoose.Schema({
 
   departureWindowStart: { type: Date, required: true },
   departureWindowEnd:   { type: Date, required: true },
+  expectedArrivalTime:  { type: Date },
 
   availableWeightKg: { type: Number, required: true },
   availableVolumeM3: { type: Number, required: true },
