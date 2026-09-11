@@ -1,46 +1,64 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { useNavigate, useLocation } from 'react-router-dom'
-import { Truck, Package, LayoutDashboard, PlusCircle, List, BarChart3, MapPin, Bell } from 'lucide-react'
-import { useAuthStore } from '../../store/authStore'
+import { useNavigate, useLocation, Outlet } from 'react-router-dom'
+import {
+  Truck,
+  Package,
+  LayoutDashboard,
+  PlusCircle,
+  List,
+  BarChart3,
+  MapPin,
+  Bell,
+  Sun,
+  Moon,
+  LogOut,
+} from 'lucide-react'
+import { useAuthStore, Role } from '../../store/authStore'
+import { useThemeStore } from '../../store/themeStore'
 
-const CARRIER_TABS = [
-  { label: 'Home',     icon: LayoutDashboard, path: '/carrier' },
-  { label: 'Listings', icon: PlusCircle,       path: '/carrier/listings' },
-  { label: 'Matches',  icon: List,             path: '/carrier/matches' },
-  { label: 'Bookings', icon: MapPin,           path: '/carrier/bookings' },
-  { label: 'Analytics',icon: BarChart3,        path: '/carrier/analytics' },
+export const CARRIER_TABS = [
+  { label: 'Home',      icon: LayoutDashboard, path: '/carrier' },
+  { label: 'Listings',  icon: PlusCircle,       path: '/carrier/listings' },
+  { label: 'Matches',   icon: List,             path: '/carrier/matches' },
+  { label: 'Bookings',  icon: MapPin,           path: '/carrier/bookings' },
+  { label: 'Analytics', icon: BarChart3,        path: '/carrier/analytics' },
 ]
-const SHIPPER_TABS = [
-  { label: 'Home',     icon: LayoutDashboard, path: '/shipper' },
-  { label: 'Ship',     icon: PlusCircle,       path: '/shipper/post' },
-  { label: 'Matches',  icon: List,             path: '/shipper/matches' },
-  { label: 'Track',    icon: MapPin,           path: '/shipper/track' },
-  { label: 'Analytics',icon: BarChart3,        path: '/shipper/analytics' },
+
+export const SHIPPER_TABS = [
+  { label: 'Home',      icon: LayoutDashboard, path: '/shipper' },
+  { label: 'Post Load', icon: Package,          path: '/shipper/post' },
+  { label: 'Analytics', icon: BarChart3,        path: '/shipper/analytics' },
 ]
 
 export function BottomNav() {
   const { activeRole } = useAuthStore()
   const navigate = useNavigate()
   const location = useLocation()
-  const tabs = activeRole === 'carrier' ? CARRIER_TABS : SHIPPER_TABS
-  const accent = activeRole === 'carrier' ? 'var(--indigo-bright)' : 'var(--teal)'
+
+  // Always sync effective role with URL pathname
+  const isShipperRoute = location.pathname.startsWith('/shipper')
+  const currentRole: Role = isShipperRoute ? 'shipper' : location.pathname.startsWith('/carrier') ? 'carrier' : activeRole
+  const tabs = currentRole === 'shipper' ? SHIPPER_TABS : CARRIER_TABS
+  const isCarrier = currentRole === 'carrier'
 
   return (
     <nav className="bottom-nav">
       {tabs.map((tab) => {
-        const active = location.pathname === tab.path || (tab.path !== '/carrier' && tab.path !== '/shipper' && location.pathname.startsWith(tab.path))
+        const active =
+          location.pathname === tab.path ||
+          (tab.path !== '/carrier' && tab.path !== '/shipper' && location.pathname.startsWith(tab.path))
+
         return (
           <button
             key={tab.path}
-            className={`nav-tab ${active ? (activeRole === 'carrier' ? 'active' : 'active teal') : ''}`}
+            className={`nav-tab ${active ? (isCarrier ? 'active' : 'active teal') : ''}`}
             onClick={() => navigate(tab.path)}
-            style={{ color: active ? accent : undefined }}
           >
             <motion.div whileTap={{ scale: 0.85 }} transition={{ type: 'spring', stiffness: 400, damping: 20 }}>
-              <tab.icon size={22} strokeWidth={active ? 2 : 1.75} />
+              <tab.icon size={22} />
             </motion.div>
-            {tab.label}
+            <span>{tab.label}</span>
           </button>
         )
       })}
@@ -48,90 +66,213 @@ export function BottomNav() {
   )
 }
 
-export function TopBar({ title, subtitle, actions }: { title?: string; subtitle?: string; actions?: React.ReactNode }) {
-  const { user, activeRole, setRole } = useAuthStore()
+export function TopBar({ title, subtitle }: { title?: string; subtitle?: string; actions?: React.ReactNode }) {
+  const { user, activeRole, setRole, logout } = useAuthStore()
+  const { theme, toggleTheme } = useThemeStore()
   const navigate = useNavigate()
+  const location = useLocation()
 
-  const toggleRole = () => {
-    const next = activeRole === 'carrier' ? 'shipper' : 'carrier'
-    setRole(next)
-    navigate(next === 'carrier' ? '/carrier' : '/shipper')
+  // Always sync effective role with current URL
+  const isShipperRoute = location.pathname.startsWith('/shipper')
+  const currentRole: Role = isShipperRoute ? 'shipper' : location.pathname.startsWith('/carrier') ? 'carrier' : activeRole
+  const tabs = currentRole === 'shipper' ? SHIPPER_TABS : CARRIER_TABS
+  const isCarrier = currentRole === 'carrier'
+
+  // Keep Zustand activeRole in sync with URL
+  useEffect(() => {
+    if (isShipperRoute && activeRole !== 'shipper') {
+      setRole('shipper')
+    } else if (location.pathname.startsWith('/carrier') && activeRole !== 'carrier') {
+      setRole('carrier')
+    }
+  }, [location.pathname, isShipperRoute, activeRole, setRole])
+
+  const selectRole = (targetRole: Role) => {
+    setRole(targetRole)
+    navigate(targetRole === 'shipper' ? '/shipper' : '/carrier')
   }
 
   return (
     <header className="top-bar">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
-        {/* Logo */}
-        <div style={{
-          width: 34, height: 34, borderRadius: 10,
-          background: activeRole === 'carrier'
-            ? 'linear-gradient(135deg, #6366F1, #4338CA)'
-            : 'linear-gradient(135deg, #22D3EE, #0891B2)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          flexShrink: 0, boxShadow: activeRole === 'carrier' ? '0 0 16px rgba(99,102,241,0.5)' : '0 0 16px rgba(34,211,238,0.5)',
-        }}>
-          {activeRole === 'carrier' ? <Truck size={18} color="#fff" /> : <Package size={18} color="#fff" />}
+      <div className="top-bar-inner">
+        {/* Left: Brand Logo & Title */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+          <div
+            onClick={() => navigate(isCarrier ? '/carrier' : '/shipper')}
+            style={{
+              width: 38,
+              height: 38,
+              borderRadius: 12,
+              background: isCarrier
+                ? 'linear-gradient(135deg, #6366F1, #4F46E5)'
+                : 'linear-gradient(135deg, #0EA5E9, #0284C7)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+              cursor: 'pointer',
+              boxShadow: isCarrier
+                ? '0 4px 14px rgba(79, 70, 229, 0.35)'
+                : '0 4px 14px rgba(2, 132, 199, 0.35)',
+            }}
+          >
+            {isCarrier ? <Truck size={20} color="#fff" /> : <Package size={20} color="#fff" />}
+          </div>
+
+          <div
+            onClick={() => navigate(isCarrier ? '/carrier' : '/shipper')}
+            style={{ cursor: 'pointer', minWidth: 0 }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span
+                style={{
+                  fontFamily: 'Space Grotesk',
+                  fontWeight: 800,
+                  fontSize: '1.2rem',
+                  letterSpacing: '-0.02em',
+                  color: 'var(--text-primary)',
+                }}
+              >
+                Xtra
+              </span>
+              <span
+                className={`badge ${isCarrier ? 'badge-indigo' : 'badge-teal'}`}
+                style={{ fontSize: '0.65rem', padding: '2px 8px' }}
+              >
+                {isCarrier ? 'Carrier' : 'Shipper'}
+              </span>
+            </div>
+            {title ? (
+              <div
+                style={{
+                  fontSize: '0.75rem',
+                  color: 'var(--text-secondary)',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  maxWidth: 220,
+                }}
+              >
+                {title} {subtitle ? `· ${subtitle}` : ''}
+              </div>
+            ) : (
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)' }}>
+                Empty-Leg Freight
+              </div>
+            )}
+          </div>
         </div>
 
-        {title ? (
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontWeight: 700, fontSize: '1rem', fontFamily: 'Space Grotesk', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</div>
-            {subtitle && <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>{subtitle}</div>}
-          </div>
-        ) : (
-          <span style={{ fontFamily: 'Space Grotesk', fontWeight: 800, fontSize: '1.15rem', letterSpacing: '-0.02em' }}>
-            Xtra
-          </span>
-        )}
-      </div>
+        {/* Center: Desktop Navigation Bar */}
+        <nav className="desktop-nav-links">
+          {tabs.map((tab) => {
+            const active =
+              location.pathname === tab.path ||
+              (tab.path !== '/carrier' && tab.path !== '/shipper' && location.pathname.startsWith(tab.path))
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        {/* Role Toggle */}
-        <div className="role-toggle">
-          <AnimatePresence mode="wait">
-            <button
-              className={`role-pill ${activeRole === 'carrier' ? 'active-carrier' : ''}`}
-              onClick={() => { if (activeRole !== 'carrier') toggleRole() }}
-            >
-              🚛 Carrier
-            </button>
-            <button
-              className={`role-pill ${activeRole === 'shipper' ? 'active-shipper' : ''}`}
-              onClick={() => { if (activeRole !== 'shipper') toggleRole() }}
-            >
-              📦 Shipper
-            </button>
-          </AnimatePresence>
+            return (
+              <button
+                key={tab.path}
+                className={`desktop-nav-item ${active ? (isCarrier ? 'active' : 'active teal') : ''}`}
+                onClick={() => navigate(tab.path)}
+              >
+                <tab.icon size={16} />
+                <span>{tab.label}</span>
+              </button>
+            )
+          })}
+        </nav>
+
+        {/* Right: Controls (Role Switcher, Theme Toggle, Notifications, User) */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+
+
+          {/* Bright / Dark Theme Toggle */}
+          <button
+            className="theme-toggle-btn"
+            onClick={toggleTheme}
+            title={`Switch to ${theme === 'light' ? 'Dark' : 'Bright'} Theme`}
+            aria-label="Toggle Theme"
+          >
+            <AnimatePresence mode="wait">
+              {theme === 'light' ? (
+                <motion.div key="sun" initial={{ rotate: -90, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }} exit={{ rotate: 90, opacity: 0 }} transition={{ duration: 0.2 }}>
+                  <Sun size={18} color="#D97706" />
+                </motion.div>
+              ) : (
+                <motion.div key="moon" initial={{ rotate: 90, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }} exit={{ rotate: -90, opacity: 0 }} transition={{ duration: 0.2 }}>
+                  <Moon size={18} color="#818CF8" />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </button>
+
+          {/* Notifications */}
+          <button
+            style={{
+              position: 'relative',
+              background: 'var(--glass-white)',
+              border: '1px solid var(--glass-border)',
+              width: 36,
+              height: 36,
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'var(--text-secondary)',
+              cursor: 'pointer',
+              boxShadow: 'var(--shadow-sm)',
+            }}
+            title="Notifications"
+          >
+            <Bell size={18} strokeWidth={1.8} />
+            <span className="notif-dot" />
+          </button>
+
+          {/* User Avatar */}
+          {user && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div
+                className="avatar"
+                style={{ width: 36, height: 36, fontSize: '0.85rem', cursor: 'pointer' }}
+                title={user.name}
+              >
+                {user.name.charAt(0)}
+              </div>
+              <button 
+                onClick={() => { logout(); navigate('/') }} 
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 8, borderRadius: '50%' }}
+                title="Log Out"
+              >
+                <LogOut size={18} />
+              </button>
+            </div>
+          )}
         </div>
-
-        {/* Notification */}
-        <button style={{ position: 'relative', background: 'none', border: 'none', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center' }}>
-          <Bell size={20} strokeWidth={1.75} />
-          <span className="notif-dot" />
-        </button>
-
-        {/* Avatar */}
-        {user && (
-          <div className="avatar" style={{ width: 32, height: 32, fontSize: '0.8rem', cursor: 'pointer' }} onClick={() => navigate('/profile')}>
-            {user.name.charAt(0)}
-          </div>
-        )}
       </div>
     </header>
   )
 }
 
-export function PageShell({ children, title, subtitle, actions }: {
-  children: React.ReactNode; title?: string; subtitle?: string; actions?: React.ReactNode
+export function PageShell({
+  children,
+  title,
+  subtitle,
+  actions,
+}: {
+  children: React.ReactNode
+  title?: string
+  subtitle?: string
+  actions?: React.ReactNode
 }) {
   return (
     <>
       <TopBar title={title} subtitle={subtitle} actions={actions} />
       <main className="page-shell">
         <motion.div
-          initial={{ opacity: 0, y: 16 }}
+          initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
+          transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
         >
           {children}
         </motion.div>
@@ -141,15 +282,17 @@ export function PageShell({ children, title, subtitle, actions }: {
   )
 }
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+export function AppShell({ children }: { children?: React.ReactNode }) {
   return (
     <div style={{ position: 'relative', minHeight: '100vh' }}>
-      {/* Ambient orbs */}
+      {/* Ambient glowing orbs in the background */}
       <div className="bg-orbs">
         <div className="bg-orb bg-orb-1" />
         <div className="bg-orb bg-orb-2" />
         <div className="bg-orb bg-orb-3" />
       </div>
+      {/* Outlet renders child routes when used as a layout route */}
+      <Outlet />
       {children}
     </div>
   )
