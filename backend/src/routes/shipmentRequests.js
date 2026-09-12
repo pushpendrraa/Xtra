@@ -12,6 +12,7 @@ const router  = express.Router()
 const { protect } = require('../middleware/auth')
 const ShipmentRequest = require('../models/ShipmentRequest')
 const Match           = require('../models/Match')
+const User            = require('../models/User')
 const { matchShipment } = require('../services/matchingEngine')
 
 // POST /api/shipment-requests
@@ -81,6 +82,32 @@ router.get('/:id', protect, async (req, res, next) => {
       .lean()
 
     res.json({ success: true, data: { ...shipment, matches } })
+  } catch (err) {
+    next(err)
+  }
+})
+
+// POST /api/shipment-requests/:id/rematch — shipper manually re-triggers matching
+router.post('/:id/rematch', protect, async (req, res, next) => {
+  try {
+    const shipment = await ShipmentRequest.findOne({
+      _id: req.params.id,
+      shipperId: req.user._id,
+      status: { $in: ['open', 'pending'] },
+    })
+    if (!shipment) return res.status(404).json({ success: false, message: 'Shipment not found or already matched' })
+
+    // Expire previous stale proposed matches so we re-push fresh ones
+    await Match.updateMany(
+      { shipmentId: shipment._id, status: 'proposed' },
+      { status: 'expired' }
+    )
+
+    matchShipment(shipment).catch(err =>
+      console.error('[rematch] error:', err.message)
+    )
+
+    res.json({ success: true, message: 'Re-matching triggered' })
   } catch (err) {
     next(err)
   }

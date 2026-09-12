@@ -1,20 +1,24 @@
 import { useState, useEffect } from 'react'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
-import { TrendingUp, Truck, Leaf, DollarSign, Plus, ChevronRight, Clock, ShieldCheck, ArrowUpRight } from 'lucide-react'
+import { TrendingUp, Truck, Leaf, DollarSign, Plus, ChevronRight, Clock, ShieldCheck, ArrowUpRight, Bell } from 'lucide-react'
 import { PageShell } from '../../components/layout/Shell'
 import { KPICard, GlassCard, StatusBadge, SectionHeader } from '../../components/ui'
 import { api, MOCK_CARRIER_KPI, MOCK_BOOKINGS, MOCK_MATCH_OFFERS } from '../../services/api'
 import { useAuthStore } from '../../store/authStore'
+import { connectSocket } from '../../services/socket'
+import { MatchOfferPopup, MatchOffer } from '../../components/ui/MatchOfferPopup'
 
 export default function CarrierDashboard() {
-  const { user } = useAuthStore()
+  const { user } = useAuthStore() as any
   const navigate = useNavigate()
   const kpi = MOCK_CARRIER_KPI
   const hour = new Date().getHours()
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
 
   const [hasActiveListing, setHasActiveListing] = useState(false)
+  const [offerQueue, setOfferQueue] = useState<MatchOffer[]>([])
+  const activeOffer = offerQueue[0] ?? null
   
   useEffect(() => {
     api.get('/api/capacity-listings')
@@ -22,10 +26,30 @@ export default function CarrierDashboard() {
         setHasActiveListing(res.data.data.some((l: any) => ['open', 'partially_matched'].includes(l.status)))
       })
       .catch(console.error)
+
+    // Connect socket and listen for incoming match offers
+    const rawToken = user?.token || JSON.parse(localStorage.getItem('xtra-auth') || '{}')?.state?.token
+    if (rawToken) {
+      const sock = connectSocket(rawToken)
+      sock.on('match:offer', (offer: MatchOffer) => {
+        setOfferQueue(q => [...q, offer])
+      })
+    }
   }, [])
 
   return (
     <PageShell>
+      {/* Ola/Uber-style incoming offer overlay */}
+      <AnimatePresence>
+        {activeOffer && (
+          <MatchOfferPopup
+            key={activeOffer.matchId}
+            offer={activeOffer}
+            onDone={() => setOfferQueue(q => q.slice(1))}
+          />
+        )}
+      </AnimatePresence>
+
       <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
 
         {/* Hero Greeting & Quick Action Banner */}

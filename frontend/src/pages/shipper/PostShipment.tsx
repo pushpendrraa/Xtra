@@ -1,15 +1,19 @@
-import { useState } from 'react'
-import { motion } from 'framer-motion'
-import { MapPin, Weight, Box, Clock, Zap, DollarSign, Leaf, Sparkles, ShieldCheck } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { MapPin, Weight, Box, Clock, Zap, DollarSign, Leaf, Sparkles, ShieldCheck, RefreshCw, ChevronRight, Truck } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { PageShell } from '../../components/layout/Shell'
 import { GlassCard } from '../../components/ui'
 import { LocationPicker, LocationData } from '../../components/ui/LocationPicker'
+import { shipmentApi } from '../../services/api'
+import { connectSocket, getSocket } from '../../services/socket'
+import { useAuthStore } from '../../store/authStore'
 
 const SHIPMENT_TYPES = ['General', 'Fragile', 'Refrigerated', 'Hazmat']
 
 export default function PostShipment() {
   const navigate = useNavigate()
+  const { token } = useAuthStore() as any
   
   // Use LocationData for pickup/dropoff
   const [pickup, setPickup] = useState<LocationData>({ lat: 0, lng: 0, label: '' })
@@ -23,7 +27,14 @@ export default function PostShipment() {
     notes: '',
   })
   const [submitted, setSubmitted] = useState(false)
+  const [shipmentId, setShipmentId] = useState<string | null>(null)
   const [error, setError] = useState('')
+  const [carriersFound, setCarriersFound] = useState(0)
+  const [matchPhase, setMatchPhase] = useState<'scanning' | 'found' | 'waiting'>('scanning')
+  const [secondsLeft, setSecondsLeft] = useState(300) // 5-min window
+  const [canResend, setCanResend] = useState(false)
+  const [resending, setResending] = useState(false)
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const urgency = (() => {
     if (!form.deadline) return null
@@ -64,13 +75,31 @@ export default function PostShipment() {
         autoAccept: false,
       }
       
-      // Import shipmentApi dynamically if not imported at top
-      const { shipmentApi } = await import('../../services/api')
-      await shipmentApi.create(payload)
-      
-      // Show the scanning animation for a bit
-      await new Promise((r) => setTimeout(r, 2500))
-      navigate('/shipper')
+      const res = await shipmentApi.create(payload)
+      const newId = res.data?._id || res.data?.id
+      setShipmentId(newId)
+
+      // Connect socket and listen for matches
+      const rawToken = token || JSON.parse(localStorage.getItem('xtra-auth') || '{}')?.state?.token
+      if (rawToken) {
+        const sock = connectSocket(rawToken)
+        sock.on('match:found', ({ carriersFound: n }) => {
+          setCarriersFound(n)
+          setMatchPhase('found')
+          setTimeout(() => setMatchPhase('waiting'), 2500)
+        })
+        sock.on('booking:confirmed', () => navigate('/shipper'))
+      }
+
+      // Start 5-min countdown
+      timerRef.current = setInterval(() => {
+        setSecondsLeft(s => {
+          if (s <= 1) { clearInterval(timerRef.current!); return 0 }
+          if (s === 181) setCanResend(true) // show resend after 2 min
+          return s - 1
+        })
+      }, 1000)
+
     } catch (err) {
       console.error('Failed to post shipment:', err)
       setError('Failed to post shipment. Please try again.')
@@ -78,21 +107,139 @@ export default function PostShipment() {
     }
   }
 
+  const handleResend = async () => {
+    if (!shipmentId) return
+    setResending(true)
+    setCarriersFound(0)
+    setMatchPhase('scanning')
+    setSecondsLeft(300)
+    setCanResend(false)
+    try {
+      await shipmentApi.rematch(shipmentId)
+      // Restart timer
+      if (timerRef.current) clearInterval(timerRef.current)
+      timerRef.current = setInterval(() => {
+        setSecondsLeft(s => {
+          if (s <= 1) { clearInterval(timerRef.current!); return 0 }
+          if (s === 181) setCanResend(true)
+          return s - 1
+        })
+      }, 1000)
+    } catch(err) { console.error(err) }
+    finally { setResending(false) }
+  }
+
+  // Format mm:ss
+  const fmt = (s: number) => `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`
+
+  // ── Ola/Uber-style waiting screen ──────────────────────────────
   if (submitted && !error) {
+    const from = pickup.label?.split(',')[0] || 'Origin'
+    const to = dropoff.label?.split(',')[0] || 'Destination'
+
+    const phases = [
+      '🛰️ Scanning carrier routes…',
+      '📡 Matching polyline corridors…',
+      '⚡ Calculating route overlap…',
+      '🚛 Pinging matched carriers…',
+    ]
+
     return (
-      <PageShell title="Finding Matches">
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', gap: 20 }}>
-          <motion.div
-            animate={{ rotate: 360 }}
-            transition={{ duration: 1.2, repeat: Infinity, ease: 'linear' }}
-            style={{ width: 68, height: 68, borderRadius: '50%', border: '4px solid rgba(2, 132, 199, 0.2)', borderTopColor: 'var(--teal)' }}
-          />
-          <div style={{ textAlign: 'center' }}>
-            <h2 style={{ fontWeight: 800 }}>Scanning Empty-Leg Fleet…</h2>
-            <p style={{ color: 'var(--text-secondary)', marginTop: 6, fontSize: '0.92rem' }}>
-              Xtra AI is matching your cargo with empty return haulers on the {pickup.label?.split(',')[0]}–{dropoff.label?.split(',')[0]} corridor
-            </p>
+      <PageShell title="Finding Carriers">
+        <div style={{ minHeight: '80vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 32, padding: '0 16px' }}>
+
+          {/* Radar animation */}
+          <div style={{ position: 'relative', width: 180, height: 180 }}>
+            {[1,2,3].map(ring => (
+              <motion.div key={ring}
+                animate={{ scale: [1, 2.2], opacity: [0.5, 0] }}
+                transition={{ duration: 2, delay: ring * 0.55, repeat: Infinity, ease: 'easeOut' }}
+                style={{ position: 'absolute', inset: 0, borderRadius: '50%', border: `2px solid var(--teal)` }}
+              />
+            ))}
+            {/* Spinning arc */}
+            <motion.div
+              animate={{ rotate: 360 }}
+              transition={{ duration: 1.6, repeat: Infinity, ease: 'linear' }}
+              style={{ position: 'absolute', inset: 0, borderRadius: '50%', border: '3px solid transparent', borderTopColor: 'var(--teal)', borderRightColor: 'rgba(34,211,238,0.4)' }}
+            />
+            {/* Center truck icon */}
+            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <AnimatePresence mode="wait">
+                {matchPhase === 'found' ? (
+                  <motion.div key="found" initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}
+                    style={{ width: 64, height: 64, borderRadius: '50%', background: 'rgba(16,185,129,0.15)', border: '2px solid var(--emerald)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--emerald)', fontSize: '2rem' }}
+                  >✓</motion.div>
+                ) : (
+                  <motion.div key="truck" initial={{ scale: 0.8 }} animate={{ scale: [0.9, 1.05, 0.9] }} transition={{ duration: 2, repeat: Infinity }}
+                    style={{ width: 64, height: 64, borderRadius: '50%', background: 'rgba(34,211,238,0.1)', border: '2px solid rgba(34,211,238,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--teal)' }}
+                  ><Truck size={28}/></motion.div>
+                )}
+              </AnimatePresence>
+            </div>
           </div>
+
+          {/* Route pill */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--glass-white)', border: '1px solid var(--glass-border)', borderRadius: 40, padding: '10px 20px', backdropFilter: 'blur(12px)' }}>
+            <MapPin size={14} color="var(--teal)" />
+            <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>{from}</span>
+            <span style={{ color: 'var(--text-tertiary)' }}>————</span>
+            <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>{to}</span>
+            <MapPin size={14} color="var(--rose)" />
+          </div>
+
+          {/* Dynamic status text */}
+          <AnimatePresence mode="wait">
+            {matchPhase === 'found' ? (
+              <motion.div key="found-msg" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                style={{ textAlign: 'center' }}
+              >
+                <h2 style={{ fontWeight: 800, fontSize: '1.5rem', color: 'var(--emerald)' }}>🎉 {carriersFound} Carrier{carriersFound !== 1 ? 's' : ''} Found!</h2>
+                <p style={{ color: 'var(--text-secondary)', marginTop: 6 }}>Requests sent — waiting for acceptance</p>
+              </motion.div>
+            ) : matchPhase === 'waiting' ? (
+              <motion.div key="wait-msg" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                style={{ textAlign: 'center' }}
+              >
+                <h2 style={{ fontWeight: 800, fontSize: '1.4rem' }}>⏳ Waiting for Carrier Response</h2>
+                <p style={{ color: 'var(--text-secondary)', marginTop: 6, fontSize: '0.9rem' }}>Carriers have {fmt(secondsLeft)} to accept — you can keep using the app!</p>
+              </motion.div>
+            ) : (
+              <motion.div key="scan-msg" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                style={{ textAlign: 'center' }}
+              >
+                <h2 style={{ fontWeight: 800, fontSize: '1.4rem' }}>Scanning Carrier Routes…</h2>
+                {/* Cycling status lines */}
+                <RotatingPhases phases={phases} />
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Countdown ring (shown in waiting phase) */}
+          {matchPhase === 'waiting' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: secondsLeft < 60 ? 'var(--rose)' : 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums', fontSize: '1.1rem', fontWeight: 700 }}>
+              <Clock size={18} /> {fmt(secondsLeft)}
+            </div>
+          )}
+
+          {/* Action buttons */}
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
+            <button className="btn btn-outline" onClick={() => navigate('/shipper')} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              Go to Dashboard <ChevronRight size={16} />
+            </button>
+
+            {canResend && (
+              <motion.button
+                initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
+                className="btn btn-teal" onClick={handleResend} disabled={resending}
+                style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+              >
+                <RefreshCw size={16} className={resending ? 'animate-spin' : ''} />
+                {resending ? 'Resending…' : 'Resend Requests'}
+              </motion.button>
+            )}
+          </div>
+
         </div>
       </PageShell>
     )
@@ -313,5 +460,28 @@ export default function PostShipment() {
         </div>
       </form>
     </PageShell>
+  )
+}
+
+// ── Helper: cycles through status messages ────────────────────────
+function RotatingPhases({ phases }: { phases: string[] }) {
+  const [idx, setIdx] = useState(0)
+  useEffect(() => {
+    const t = setInterval(() => setIdx(i => (i + 1) % phases.length), 1800)
+    return () => clearInterval(t)
+  }, [phases.length])
+  return (
+    <AnimatePresence mode="wait">
+      <motion.p
+        key={idx}
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -6 }}
+        transition={{ duration: 0.35 }}
+        style={{ color: 'var(--text-secondary)', marginTop: 8, fontSize: '0.88rem' }}
+      >
+        {phases[idx]}
+      </motion.p>
+    </AnimatePresence>
   )
 }

@@ -256,17 +256,30 @@ async function matchShipment(shipment) {
     if (score > AUTO_MATCH_THRESHOLD && listing.autoAccept && shipment.autoAccept) {
       await confirmBooking(match)
     } else if (io) {
+      // Push to carrier — Ola/Uber style incoming request
       io.to(`carrier:${listing.carrierId}`).emit('match:offer', {
-        matchId:    match._id,
-        shipmentId: shipment._id,
-        score,
-        priceQuote: match.priceQuote,
-        detourKm:   match.detourKm,
-        pickup:     shipment.pickup,
-        dropoff:    shipment.dropoff,
-        deadline:   shipment.deadline,
+        matchId:       match._id,
+        shipmentId:    shipment._id,
+        score:         Math.round(score * 100),          // 0-100
+        priceQuote:    match.priceQuote,
+        detourKm:      match.detourKm,
+        pickup:        { label: shipment.pickup.label,   coords: shipment.pickup.coordinates },
+        dropoff:       { label: shipment.dropoff.label,  coords: shipment.dropoff.coordinates },
+        deadline:      shipment.deadline,
+        weightKg:      shipment.weightKg,
+        volumeM3:      shipment.volumeM3,
+        shipmentType:  shipment.shipmentType,
+        expiresAt:     new Date(Date.now() + 2 * 60 * 1000).toISOString(), // 2-min accept window
       })
     }
+  }
+
+  // Notify shipper: how many carriers were pinged
+  if (io && results.length > 0) {
+    io.to(`shipper:${shipment.shipperId}`).emit('match:found', {
+      shipmentId:  shipment._id,
+      carriersFound: results.length,
+    })
   }
 
   return results

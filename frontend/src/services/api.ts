@@ -86,6 +86,12 @@ export const shipmentApi = {
     
   getMyRequests: () => 
     api.get('/api/shipment-requests').then((r) => r.data),
+
+  getById: (id: string) =>
+    api.get(`/api/shipment-requests/${id}`).then((r) => r.data),
+
+  rematch: (id: string) =>
+    api.post(`/api/shipment-requests/${id}/rematch`).then((r) => r.data),
 }
 
 // ─── Capacity Listings API ───────────────────────────────────────
@@ -106,6 +112,13 @@ export const matchApi = {
     
   acceptMatch: (id: string) =>
     api.post(`/api/matches/${id}/accept`).then((r) => r.data),
+}
+
+// ─── Bookings API ────────────────────────────────────────────────
+
+export const bookingApi = {
+  getMyBookings: () =>
+    api.get('/api/bookings').then((r) => r.data),
 }
 
 // ─── Dashboard API ───────────────────────────────────────────────
