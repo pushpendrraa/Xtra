@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Plus, MapPin, Clock, ChevronRight, Zap } from 'lucide-react'
+import { Plus, MapPin, Clock, ChevronRight, Zap, RefreshCw } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { PageShell } from '../../components/layout/Shell'
 import { GlassCard, StatusBadge, EmptyState } from '../../components/ui'
@@ -16,6 +16,7 @@ export default function CarrierListings() {
   const [matches, setMatches] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [accepting, setAccepting] = useState<string | null>(null)
+  const [rematching, setRematching] = useState<string | null>(null)
   
   // Real-time socket connection
   useEffect(() => {
@@ -161,13 +162,32 @@ export default function CarrierListings() {
                       </div>
                       
                       {['open', 'partially_matched'].includes(l.status) && (
-                        <button
-                          className="btn btn-sm btn-outline"
-                          style={{ width: '100%', padding: '6px', fontSize: '0.8rem', color: 'var(--rose)', borderColor: 'rgba(244, 63, 94, 0.3)' }}
-                          onClick={() => handleTerminateListing(l._id)}
-                        >
-                          Terminate Trip
-                        </button>
+                        <div style={{ display: 'flex', gap: 8, flexDirection: 'column' }}>
+                          {/* Find Matches button */}
+                          <button
+                            className="btn btn-sm btn-outline"
+                            style={{ width: '100%', padding: '7px', fontSize: '0.8rem', color: '#818CF8', borderColor: 'rgba(129,140,248,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                            disabled={rematching === l._id}
+                            onClick={async () => {
+                              setRematching(l._id)
+                              try {
+                                await listingApi.rematch(l._id)
+                                setTimeout(() => setRematching(null), 8000)
+                              } catch { setRematching(null) }
+                            }}
+                          >
+                            <RefreshCw size={13} className={rematching === l._id ? 'animate-spin' : ''} />
+                            {rematching === l._id ? 'Scanning…' : 'Find Matches'}
+                          </button>
+
+                          <button
+                            className="btn btn-sm btn-outline"
+                            style={{ width: '100%', padding: '6px', fontSize: '0.8rem', color: 'var(--rose)', borderColor: 'rgba(244, 63, 94, 0.3)' }}
+                            onClick={() => handleTerminateListing(l._id)}
+                          >
+                            Terminate Trip
+                          </button>
+                        </div>
                       )}
                     </div>
                   </GlassCard>

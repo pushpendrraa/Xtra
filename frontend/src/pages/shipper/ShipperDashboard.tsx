@@ -102,10 +102,16 @@ export default function ShipperDashboard() {
               </div>
             ) : (
               shipments.map((req, i) => {
-                const isMatched = ['matched', 'active', 'completed', 'open'].includes(req.status)
+                // Correct status mapping from ShipmentRequest model:
+                // open = posted, waiting (no carrier accepted yet)
+                // matched = a carrier accepted the booking
+                // in_transit = shipment is being transported
+                // delivered = complete
+                const isOpen      = req.status === 'open'
+                const isMatched   = req.status === 'matched' || req.status === 'in_transit'
                 const isDelivered = req.status === 'delivered'
-                const isPending = req.status === 'pending' || req.status === 'open'
-                const clickable = isMatched || isDelivered
+                const isCancelled = req.status === 'cancelled'
+                const clickable   = isMatched || isDelivered
 
                 return (
                   <motion.div
@@ -138,12 +144,24 @@ export default function ShipperDashboard() {
                         <div style={{ 
                           display: 'inline-flex', alignItems: 'center', gap: 8, 
                           padding: '8px 14px', borderRadius: 24, fontSize: '0.82rem', fontWeight: 800,
-                          background: isDelivered ? 'rgba(16,185,129,0.1)' : (isMatched ? '#ECFDF5' : (isPending ? '#FFFBEB' : '#FEF2F2')),
-                          color: isDelivered ? '#10B981' : (isMatched ? 'var(--emerald)' : (isPending ? '#D97706' : '#EF4444')),
-                          border: `1px solid ${isDelivered ? 'rgba(16,185,129,0.3)' : (isMatched ? '#A7F3D0' : (isPending ? '#FDE68A' : '#FECACA'))}`
+                          ...(isDelivered ? {
+                            background: 'rgba(16,185,129,0.1)', color: '#10B981', border: '1px solid rgba(16,185,129,0.3)'
+                          } : isMatched ? {
+                            background: '#ECFDF5', color: 'var(--emerald)', border: '1px solid #A7F3D0'
+                          } : isOpen ? {
+                            background: 'rgba(99,102,241,0.08)', color: '#818CF8', border: '1px solid rgba(99,102,241,0.25)'
+                          } : {
+                            background: '#FEF2F2', color: '#EF4444', border: '1px solid #FECACA'
+                          })
                         }}>
-                          {isDelivered ? <CheckCircle2 size={16} /> : (isMatched ? <CheckCircle2 size={16} /> : (isPending ? <Clock size={16} /> : <XCircle size={16} />))}
-                          {isDelivered ? 'Delivered ✓' : (isMatched ? 'Matched / Active' : (isPending ? 'Pending Match' : 'Cancelled'))}
+                          {isDelivered ? <CheckCircle2 size={16} /> 
+                            : isMatched ? <CheckCircle2 size={16} /> 
+                            : isOpen ? <Clock size={16} className="animate-spin" style={{ animationDuration: '3s' }} />
+                            : <XCircle size={16} />}
+                          {isDelivered ? 'Delivered ✓'
+                            : isMatched ? 'Carrier Assigned ✓'
+                            : isOpen ? 'Searching for Carriers…'
+                            : 'Cancelled'}
                         </div>
                         {clickable && <ChevronRight size={16} color="var(--text-tertiary)" />}
                       </div>

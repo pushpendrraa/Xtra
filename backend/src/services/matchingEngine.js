@@ -25,10 +25,15 @@ const { computePrice } = require('./pricingEngine')
 const { isDriverCompliant, estimateTripHours } = require('./complianceEngine')
 
 // ── Config from env ───────────────────────────────────────────────
-const MAX_CORRIDOR_METERS    = Number(process.env.MAX_CORRIDOR_METERS    || 4000)
-const MAX_DETOUR_KM          = Number(process.env.MAX_DETOUR_KM          || 15)
-const MAX_DETOUR_PCT         = Number(process.env.MAX_DETOUR_PCT         || 0.25)
-const MAX_TIME_SLACK_MINUTES = Number(process.env.MAX_TIME_SLACK_MINUTES || 180)
+// ROUTE_CORRIDOR_METERS: max distance from shipment point to the carrier's route polyline
+// This is the key precision knob — 10km means the carrier's road must pass within 10km of the pickup/dropoff
+const ROUTE_CORRIDOR_METERS   = Number(process.env.ROUTE_CORRIDOR_METERS   || 10000)  // 10km along the actual route
+// FALLBACK_CORRIDOR_METERS: wider search on origin/destination Points when routeLine is missing
+const FALLBACK_CORRIDOR_METERS = Number(process.env.FALLBACK_CORRIDOR_METERS || 100000) // 100km city-level fallback
+const MAX_CORRIDOR_METERS      = ROUTE_CORRIDOR_METERS  // keep alias for sweepForMatches
+const MAX_DETOUR_KM          = Number(process.env.MAX_DETOUR_KM          || 150)
+const MAX_DETOUR_PCT         = Number(process.env.MAX_DETOUR_PCT         || 0.5)
+const MAX_TIME_SLACK_MINUTES = Number(process.env.MAX_TIME_SLACK_MINUTES || 720)
 const AUTO_MATCH_THRESHOLD   = Number(process.env.AUTO_MATCH_THRESHOLD   || 0.85)
 
 // io is set by index.js after socket.io is attached
@@ -37,16 +42,64 @@ function setIo(socketIo) { io = socketIo }
 
 // ── §4 Candidate query ────────────────────────────────────────────
 
+/**
+ * Find all carrier listings whose route passes within ROUTE_CORRIDOR_METERS of a point.
+ *
+ * How it works:
+ *  - MongoDB $nearSphere on a 2dsphere-indexed LineString computes the minimum
+ *    distance from the query point to any segment of the polyline.
+ *  - So if a carrier's road passes within 10km of the shipment's pickup city,
+ *    that carrier is a candidate — even if the city is not exactly on the highway.
+ *  - Falls back to a wider 100km bounding box on origin/destination Points when the
+ *    routeLine is empty (e.g. OSRM was unreachable at listing creation time).
+ */
 async function findRoutesNear(point) {
-  return CapacityListing.find({
-    status: 'open',
-    routeLine: {
-      $nearSphere: {
-        $geometry: { type: 'Point', coordinates: [point.lng, point.lat] },
-        $maxDistance: MAX_CORRIDOR_METERS,
+  // ── Primary: $nearSphere on the actual route polyline ───────────
+  let byLine = []
+  try {
+    byLine = await CapacityListing.find({
+      status: { $in: ['open', 'partially_matched'] },
+      routeLine: {
+        $nearSphere: {
+          $geometry: { type: 'Point', coordinates: [point.lng, point.lat] },
+          $maxDistance: ROUTE_CORRIDOR_METERS,
+        },
       },
-    },
+    }).lean()
+  } catch (err) {
+    // 2dsphere index may not exist yet — fall through to fallback
+    console.warn('[matching] $nearSphere on routeLine failed:', err.message)
+  }
+
+  if (byLine.length > 0) {
+    console.log(`[matching] routeLine match: ${byLine.length} listings within ${ROUTE_CORRIDOR_METERS/1000}km of [${point.lng.toFixed(3)},${point.lat.toFixed(3)}]`)
+    return byLine
+  }
+
+  // ── Fallback: wide bounding box on origin + destination Points ──
+  // Activates when routeLine is an empty LineString (OSRM build failed)
+  const byPoints = await CapacityListing.find({
+    status: { $in: ['open', 'partially_matched'] },
+    $or: [
+      {
+        'origin.coordinates': {
+          $geoWithin: {
+            $centerSphere: [[point.lng, point.lat], FALLBACK_CORRIDOR_METERS / 6378137],
+          },
+        },
+      },
+      {
+        'destination.coordinates': {
+          $geoWithin: {
+            $centerSphere: [[point.lng, point.lat], FALLBACK_CORRIDOR_METERS / 6378137],
+          },
+        },
+      },
+    ],
   }).lean()
+
+  console.log(`[matching] fallback bbox: ${byPoints.length} listings within ${FALLBACK_CORRIDOR_METERS/1000}km of [${point.lng.toFixed(3)},${point.lat.toFixed(3)}]`)
+  return byPoints
 }
 
 async function getCandidateListings(shipment) {
@@ -58,9 +111,15 @@ async function getCandidateListings(shipment) {
     findRoutesNear(dropoff),
   ])
 
+  // Carrier qualifies if their route passes near BOTH the pickup and the dropoff
+  // (ensures the carrier is actually going FROM the pickup area TO the dropoff area)
   const dropoffIds = new Set(nearDropoff.map(l => l._id.toString()))
-  return nearPickup.filter(l => dropoffIds.has(l._id.toString()))
+  const candidates = nearPickup.filter(l => dropoffIds.has(l._id.toString()))
+
+  console.log(`[matching] shipment ${shipment._id}: nearPickup=${nearPickup.length}, nearDropoff=${nearDropoff.length}, qualified=${candidates.length}`)
+  return candidates
 }
+
 
 // ── §5 Direction check ────────────────────────────────────────────
 
@@ -285,20 +344,43 @@ async function matchShipment(shipment) {
   return results
 }
 
-// ── §11.1 Reverse sweep (new listing → check open shipments) ──────
+// ── §11.1 Reverse sweep (new listing → check open shipments along route) ──────
 
 async function sweepForMatches({ newListing }) {
-  const openShipments = await ShipmentRequest.find({
-    status: 'open',
-    dropoff: {
-      $nearSphere: {
-        $geometry: newListing.destination,
-        $maxDistance: MAX_CORRIDOR_METERS,
+  // Search for open shipments near BOTH the listing's origin and destination
+  // This catches shipments anywhere along the carrier's route
+  const [nearOrigin, nearDest] = await Promise.all([
+    ShipmentRequest.find({
+      status: 'open',
+      pickup: {
+        $nearSphere: {
+          $geometry: newListing.origin,
+          $maxDistance: MAX_CORRIDOR_METERS,
+        },
       },
-    },
+    }),
+    ShipmentRequest.find({
+      status: 'open',
+      dropoff: {
+        $nearSphere: {
+          $geometry: newListing.destination,
+          $maxDistance: MAX_CORRIDOR_METERS,
+        },
+      },
+    }),
+  ])
+
+  // Union both sets — try matching any shipment near the route start or end
+  const seen = new Set()
+  const allShipments = [...nearOrigin, ...nearDest].filter(s => {
+    if (seen.has(s._id.toString())) return false
+    seen.add(s._id.toString())
+    return true
   })
 
-  for (const shipment of openShipments) {
+  console.log(`[sweepForMatches] Found ${allShipments.length} candidate shipments for listing ${newListing._id}`)
+
+  for (const shipment of allShipments) {
     try {
       await matchShipment(shipment)
     } catch (err) {

@@ -102,6 +102,9 @@ export const listingApi = {
     
   terminateListing: (id: string) =>
     api.patch(`/api/capacity-listings/${id}/status`, { status: 'cancelled' }).then((r) => r.data),
+
+  rematch: (id: string) =>
+    api.post(`/api/capacity-listings/${id}/rematch`).then((r) => r.data),
 }
 
 // ─── Matches API ─────────────────────────────────────────────────

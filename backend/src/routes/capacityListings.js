@@ -122,4 +122,21 @@ router.patch('/:id/status', protect, async (req, res, next) => {
   }
 })
 
+// POST /api/capacity-listings/:id/rematch — manually re-trigger matching sweep
+router.post('/:id/rematch', protect, async (req, res, next) => {
+  try {
+    const listing = await CapacityListing.findOne({ _id: req.params.id, carrierId: req.user._id })
+    if (!listing) return res.status(404).json({ success: false, message: 'Listing not found or not yours' })
+
+    // Fire sweep async
+    sweepForMatches({ newListing: listing }).catch(err =>
+      console.error('[rematch] sweepForMatches error:', err.message)
+    )
+
+    res.json({ success: true, message: 'Matching sweep triggered. You will receive any matching requests shortly.' })
+  } catch (err) {
+    next(err)
+  }
+})
+
 module.exports = router
