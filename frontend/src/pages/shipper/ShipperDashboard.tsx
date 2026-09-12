@@ -1,17 +1,21 @@
 import { useState, useEffect } from 'react'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
-import { DollarSign, Package, Plus, CheckCircle2, Clock, XCircle, Loader2 } from 'lucide-react'
+import { DollarSign, Package, Plus, CheckCircle2, Clock, XCircle, Loader2, ChevronRight } from 'lucide-react'
 import { PageShell } from '../../components/layout/Shell'
 import { KPICard, SectionHeader } from '../../components/ui'
-import { MOCK_SHIPPER_KPI, shipmentApi } from '../../services/api'
+import { MOCK_SHIPPER_KPI, shipmentApi, bookingApi } from '../../services/api'
 import { useAuthStore } from '../../store/authStore'
+import { connectSocket } from '../../services/socket'
+import { BookingDetailSheet } from '../../components/ui/BookingDetailSheet'
 
 export default function ShipperDashboard() {
-  const { user } = useAuthStore()
+  const { user } = useAuthStore() as any
   const navigate = useNavigate()
   const [shipments, setShipments] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null)
+  const [bookingDetail, setBookingDetail] = useState<any>(null)
   
   const kpi = MOCK_SHIPPER_KPI
   const hour = new Date().getHours()
@@ -19,12 +23,40 @@ export default function ShipperDashboard() {
 
   useEffect(() => {
     shipmentApi.getMyRequests()
-      .then(res => {
-        setShipments(res.data || [])
-      })
+      .then(res => setShipments(res.data || []))
       .catch(err => console.error('Failed to fetch shipments:', err))
       .finally(() => setLoading(false))
+
+    // Socket: listen for real-time delivery notification
+    const rawToken = user?.token || JSON.parse(localStorage.getItem('xtra-auth') || '{}')?.state?.token
+    if (rawToken) {
+      const sock = connectSocket(rawToken)
+      sock.on('booking:delivered', ({ bookingId, status }) => {
+        // Update the relevant shipment in the list to show 'delivered'
+        setShipments(prev => prev.map(s =>
+          s.bookingId === bookingId || s._id === bookingId
+            ? { ...s, status: 'delivered' }
+            : s
+        ))
+      })
+    }
   }, [])
+
+  const openBookingDetail = async (shipment: any) => {
+    // Try to find the associated booking from the API
+    try {
+      const res = await bookingApi.getMyBookings()
+      const booking = res.data?.find((b: any) =>
+        b.shipmentId?._id === shipment._id || b.shipmentId === shipment._id
+      )
+      if (booking) {
+        const detail = await bookingApi.getById(booking._id)
+        setBookingDetail(detail.data)
+      }
+    } catch (err) {
+      console.error(err)
+    }
+  }
 
   return (
     <PageShell>
@@ -70,23 +102,25 @@ export default function ShipperDashboard() {
               </div>
             ) : (
               shipments.map((req, i) => {
-                // req.status from DB: pending, matched, active, completed, cancelled
-                const isMatched = req.status === 'matched' || req.status === 'active' || req.status === 'completed'
-                const isPending = req.status === 'pending'
+                const isMatched = ['matched', 'active', 'completed', 'open'].includes(req.status)
+                const isDelivered = req.status === 'delivered'
+                const isPending = req.status === 'pending' || req.status === 'open'
+                const clickable = isMatched || isDelivered
 
                 return (
                   <motion.div
                     key={req._id || req.id}
                     className="card card-shipper"
-                    style={{ padding: 20 }}
+                    style={{ padding: 20, cursor: clickable ? 'pointer' : 'default', transition: 'opacity 0.2s' }}
                     initial={{ opacity: 0, x: -16 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: 0.15 + i * 0.05 }}
+                    onClick={() => clickable && openBookingDetail(req)}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 14 }}>
                       
                       {/* Route Info */}
-                      <div>
+                      <div style={{ flex: 1 }}>
                         <div style={{ fontWeight: 800, fontSize: '1.1rem', color: 'var(--text-primary)' }}>
                           {req.pickup?.label?.split(',')[0] || 'Pickup'} → {req.dropoff?.label?.split(',')[0] || 'Dropoff'}
                         </div>
@@ -99,18 +133,20 @@ export default function ShipperDashboard() {
                         </div>
                       </div>
                       
-                      {/* Acceptance Status Badge */}
-                      <div style={{ 
-                        display: 'inline-flex', alignItems: 'center', gap: 8, 
-                        padding: '8px 14px', borderRadius: 24, fontSize: '0.82rem', fontWeight: 800,
-                        background: isMatched ? '#ECFDF5' : (isPending ? '#FFFBEB' : '#FEF2F2'),
-                        color: isMatched ? 'var(--emerald)' : (isPending ? '#D97706' : '#EF4444'),
-                        border: `1px solid ${isMatched ? '#A7F3D0' : (isPending ? '#FDE68A' : '#FECACA')}`
-                      }}>
-                        {isMatched ? <CheckCircle2 size={16} /> : (isPending ? <Clock size={16} /> : <XCircle size={16} />)}
-                        {isMatched ? 'Matched / Active' : (isPending ? 'Pending Match' : 'Cancelled')}
+                      {/* Status Badge */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div style={{ 
+                          display: 'inline-flex', alignItems: 'center', gap: 8, 
+                          padding: '8px 14px', borderRadius: 24, fontSize: '0.82rem', fontWeight: 800,
+                          background: isDelivered ? 'rgba(16,185,129,0.1)' : (isMatched ? '#ECFDF5' : (isPending ? '#FFFBEB' : '#FEF2F2')),
+                          color: isDelivered ? '#10B981' : (isMatched ? 'var(--emerald)' : (isPending ? '#D97706' : '#EF4444')),
+                          border: `1px solid ${isDelivered ? 'rgba(16,185,129,0.3)' : (isMatched ? '#A7F3D0' : (isPending ? '#FDE68A' : '#FECACA'))}`
+                        }}>
+                          {isDelivered ? <CheckCircle2 size={16} /> : (isMatched ? <CheckCircle2 size={16} /> : (isPending ? <Clock size={16} /> : <XCircle size={16} />))}
+                          {isDelivered ? 'Delivered ✓' : (isMatched ? 'Matched / Active' : (isPending ? 'Pending Match' : 'Cancelled'))}
+                        </div>
+                        {clickable && <ChevronRight size={16} color="var(--text-tertiary)" />}
                       </div>
-
                     </div>
                   </motion.div>
                 )
@@ -120,6 +156,19 @@ export default function ShipperDashboard() {
         </div>
 
       </div>
+
+      {/* Booking detail sheet */}
+      <AnimatePresence>
+        {bookingDetail && (
+          <BookingDetailSheet
+            key={bookingDetail._id}
+            booking={bookingDetail}
+            role="shipper"
+            onClose={() => setBookingDetail(null)}
+          />
+        )}
+      </AnimatePresence>
     </PageShell>
   )
 }
+

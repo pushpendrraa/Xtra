@@ -153,7 +153,7 @@ async function createBooking(match) {
 
   // Emit to shipper
   if (io) {
-    io.to(`shipper:${match.shipperId}`).emit('booking:confirmed', {
+    io.to(`shipper:${match.shipperId.toString()}`).emit('booking:confirmed', {
       bookingId:  booking._id,
       matchId:    match._id,
       finalPrice: booking.finalPrice,
@@ -257,7 +257,7 @@ async function matchShipment(shipment) {
       await confirmBooking(match)
     } else if (io) {
       // Push to carrier — Ola/Uber style incoming request
-      io.to(`carrier:${listing.carrierId}`).emit('match:offer', {
+      io.to(`carrier:${listing.carrierId.toString()}`).emit('match:offer', {
         matchId:       match._id,
         shipmentId:    shipment._id,
         score:         Math.round(score * 100),          // 0-100
@@ -276,7 +276,7 @@ async function matchShipment(shipment) {
 
   // Notify shipper: how many carriers were pinged
   if (io && results.length > 0) {
-    io.to(`shipper:${shipment.shipperId}`).emit('match:found', {
+    io.to(`shipper:${shipment.shipperId.toString()}`).emit('match:found', {
       shipmentId:  shipment._id,
       carriersFound: results.length,
     })

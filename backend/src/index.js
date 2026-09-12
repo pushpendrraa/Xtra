@@ -11,6 +11,9 @@ const capacityListingRoutes = require('./routes/capacityListings')
 const shipmentRequestRoutes = require('./routes/shipmentRequests')
 const matchRoutes           = require('./routes/matches')
 const bookingRoutes         = require('./routes/bookings')
+// bookings exports { router, setIo }
+const bookingRouter = bookingRoutes.router || bookingRoutes
+const { setIo: setBookingsIo } = bookingRoutes
 const dashboardRoutes       = require('./routes/dashboard')
 
 // Socket.io
@@ -37,7 +40,7 @@ app.use('/api/auth',               authRoutes)
 app.use('/api/capacity-listings',  capacityListingRoutes)
 app.use('/api/shipment-requests',  shipmentRequestRoutes)
 app.use('/api/matches',            matchRoutes)
-app.use('/api/bookings',           bookingRoutes)
+app.use('/api/bookings',           bookingRouter)
 app.use('/api/dashboard',          dashboardRoutes)
 
 // Health check
@@ -63,7 +66,8 @@ mongoose
     console.log('✅ MongoDB connected')
 
     // Init Socket.io (must be after server is created)
-    initSocket(server)
+    const ioInstance = initSocket(server)
+    if (setBookingsIo) setBookingsIo(ioInstance)
     console.log('✅ Socket.io ready')
 
     // Cron: every 10 minutes, re-sweep all open shipments (catches compliance changes)

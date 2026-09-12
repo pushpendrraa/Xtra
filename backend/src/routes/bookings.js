@@ -1,17 +1,11 @@
-/**
- * routes/bookings.js
- *
- * GET  /api/bookings           — Get user's bookings
- * GET  /api/bookings/:id       — Get booking detail
- * POST /api/bookings/:id/pod   — Submit POD image URL
- * POST /api/bookings/:id/verify-pod — Shipper verifies OTP → marks delivered
- */
-
 const express = require('express')
 const router  = express.Router()
 const { protect } = require('../middleware/auth')
 const Booking         = require('../models/Booking')
 const ShipmentRequest = require('../models/ShipmentRequest')
+
+let _io = null
+function setIo(io) { _io = io }
 
 // GET /api/bookings
 router.get('/', protect, async (req, res, next) => {
@@ -70,17 +64,52 @@ router.post('/:id/pod', protect, async (req, res, next) => {
       {
         podImageUrl,
         status: 'in_transit',
-        // Generate a 4-digit OTP for shipper to confirm
         podOtp: String(Math.floor(1000 + Math.random() * 9000)),
       },
       { new: true }
     )
     if (!booking) return res.status(404).json({ success: false, message: 'Booking not found or not yours' })
 
-    // In production: send OTP to shipper's phone via SMS
     console.log(`[pod] OTP for booking ${booking._id}: ${booking.podOtp}`)
 
     res.json({ success: true, data: { bookingId: booking._id, podImageUrl: booking.podImageUrl } })
+  } catch (err) {
+    next(err)
+  }
+})
+
+// POST /api/bookings/:id/mark-delivered — Carrier marks shipment as delivered
+router.post('/:id/mark-delivered', protect, async (req, res, next) => {
+  try {
+    const booking = await Booking.findOneAndUpdate(
+      { _id: req.params.id, carrierId: req.user._id, status: { $in: ['confirmed', 'in_transit'] } },
+      { status: 'delivered', deliveryTime: new Date() },
+      { new: true }
+    )
+      .populate('carrierId',  'name phone ratingAvg carrierProfile')
+      .populate('shipperId',  'name phone shipperProfile')
+      .populate('shipmentId', 'pickup dropoff weightKg volumeM3 shipmentType deadline')
+
+    if (!booking) return res.status(404).json({ success: false, message: 'Booking not found or not yours' })
+
+    // Update shipment status
+    await ShipmentRequest.findByIdAndUpdate(booking.shipmentId, { status: 'delivered' })
+
+    // Push real-time update to shipper via socket
+    if (_io) {
+      _io.to(`shipper:${booking.shipperId._id.toString()}`).emit('booking:delivered', {
+        bookingId: booking._id,
+        status: 'delivered',
+        deliveryTime: booking.deliveryTime,
+        carrier: {
+          name:   booking.carrierId.name,
+          phone:  booking.carrierId.phone,
+          rating: booking.carrierId.ratingAvg,
+        },
+      })
+    }
+
+    res.json({ success: true, data: booking })
   } catch (err) {
     next(err)
   }
@@ -109,7 +138,6 @@ router.post('/:id/verify-pod', protect, async (req, res, next) => {
     booking.deliveryTime  = new Date()
     await booking.save()
 
-    // Mark the shipment as delivered
     await ShipmentRequest.findByIdAndUpdate(booking.shipmentId, { status: 'delivered' })
 
     res.json({ success: true, data: booking })
@@ -118,4 +146,4 @@ router.post('/:id/verify-pod', protect, async (req, res, next) => {
   }
 })
 
-module.exports = router
+module.exports = { router, setIo }

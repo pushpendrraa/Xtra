@@ -122,6 +122,9 @@ export const bookingApi = {
     
   getById: (id: string) =>
     api.get(`/api/bookings/${id}`).then((r) => r.data),
+
+  markDelivered: (id: string) =>
+    api.post(`/api/bookings/${id}/mark-delivered`).then((r) => r.data),
 }
 
 // ─── Dashboard API ───────────────────────────────────────────────
