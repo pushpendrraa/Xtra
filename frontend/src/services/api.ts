@@ -119,6 +119,9 @@ export const matchApi = {
 export const bookingApi = {
   getMyBookings: () =>
     api.get('/api/bookings').then((r) => r.data),
+    
+  getById: (id: string) =>
+    api.get(`/api/bookings/${id}`).then((r) => r.data),
 }
 
 // ─── Dashboard API ───────────────────────────────────────────────

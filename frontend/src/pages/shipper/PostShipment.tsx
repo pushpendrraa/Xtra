@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { MapPin, Weight, Box, Clock, Zap, DollarSign, Leaf, Sparkles, ShieldCheck, RefreshCw, ChevronRight, Truck } from 'lucide-react'
+import { MapPin, Weight, Box, Clock, Zap, DollarSign, Leaf, Sparkles, ShieldCheck, RefreshCw, ChevronRight, Truck, CheckCircle2, Phone, Star } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { PageShell } from '../../components/layout/Shell'
 import { GlassCard } from '../../components/ui'
 import { LocationPicker, LocationData } from '../../components/ui/LocationPicker'
-import { shipmentApi } from '../../services/api'
+import { shipmentApi, bookingApi } from '../../services/api'
 import { connectSocket, getSocket } from '../../services/socket'
 import { useAuthStore } from '../../store/authStore'
 
@@ -34,6 +34,7 @@ export default function PostShipment() {
   const [secondsLeft, setSecondsLeft] = useState(300) // 5-min window
   const [canResend, setCanResend] = useState(false)
   const [resending, setResending] = useState(false)
+  const [confirmedBooking, setConfirmedBooking] = useState<any>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const urgency = (() => {
@@ -88,7 +89,15 @@ export default function PostShipment() {
           setMatchPhase('found')
           setTimeout(() => setMatchPhase('waiting'), 2500)
         })
-        sock.on('booking:confirmed', () => navigate('/shipper'))
+        sock.on('booking:confirmed', async ({ bookingId }) => {
+          try {
+            const res = await bookingApi.getById(bookingId)
+            setConfirmedBooking(res.data)
+          } catch(err) {
+            console.error('Failed to fetch confirmed booking', err)
+            navigate('/shipper') // fallback
+          }
+        })
       }
 
       // Start 5-min countdown
@@ -132,10 +141,64 @@ export default function PostShipment() {
   // Format mm:ss
   const fmt = (s: number) => `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`
 
-  // ── Ola/Uber-style waiting screen ──────────────────────────────
+  // ── Ola/Uber-style waiting & confirmation screen ────────────────
   if (submitted && !error) {
     const from = pickup.label?.split(',')[0] || 'Origin'
     const to = dropoff.label?.split(',')[0] || 'Destination'
+
+    if (confirmedBooking) {
+      const carrier = confirmedBooking.carrierId || {}
+      const profile = carrier.carrierProfile || {}
+      return (
+        <PageShell title="Match Confirmed">
+          <div style={{ maxWidth: 500, margin: '40px auto 0', display: 'flex', flexDirection: 'column', gap: 24 }}>
+            <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} style={{ textAlign: 'center' }}>
+              <div style={{ width: 80, height: 80, borderRadius: '50%', background: 'rgba(16,185,129,0.1)', color: 'var(--emerald)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+                <CheckCircle2 size={48} />
+              </div>
+              <h2 style={{ fontSize: '1.8rem', fontWeight: 800 }}>Carrier Assigned!</h2>
+              <p style={{ color: 'var(--text-secondary)' }}>Your shipment is confirmed and scheduled.</p>
+            </motion.div>
+
+            <GlassCard style={{ padding: 24 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--glass-border)', paddingBottom: 16, marginBottom: 16 }}>
+                <div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700 }}>Final Price</div>
+                  <div style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--text-primary)' }}>₹{confirmedBooking.finalPrice?.toLocaleString()}</div>
+                </div>
+                <div style={{ background: 'rgba(16,185,129,0.15)', color: 'var(--emerald)', padding: '6px 12px', borderRadius: 20, fontSize: '0.85rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <ShieldCheck size={16} /> Confirmed
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
+                <div style={{ width: 50, height: 50, borderRadius: '50%', background: 'var(--indigo)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: '1.2rem' }}>
+                  {carrier.name?.charAt(0) || 'C'}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <div style={{ fontWeight: 800, fontSize: '1.1rem' }}>{carrier.name}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--amber)', fontWeight: 700 }}>
+                      <Star size={16} fill="currentColor" /> {carrier.ratingAvg?.toFixed(1) || '4.8'}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-secondary)', fontSize: '0.9rem', marginTop: 4 }}>
+                    <Truck size={14} /> {profile.vehicleType || 'Truck'} • {profile.vehicleNumber || 'MH-12-XX-0000'}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-secondary)', fontSize: '0.9rem', marginTop: 4 }}>
+                    <Phone size={14} /> {carrier.phone || '+91 99999 99999'}
+                  </div>
+                </div>
+              </div>
+            </GlassCard>
+
+            <button className="btn btn-primary" onClick={() => navigate('/shipper')} style={{ width: '100%', padding: 16 }}>
+              Go to Dashboard
+            </button>
+          </div>
+        </PageShell>
+      )
+    }
 
     const phases = [
       '🛰️ Scanning carrier routes…',
