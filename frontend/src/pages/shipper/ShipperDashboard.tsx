@@ -111,7 +111,7 @@ export default function ShipperDashboard() {
                 const isMatched   = req.status === 'matched' || req.status === 'in_transit'
                 const isDelivered = req.status === 'delivered'
                 const isCancelled = req.status === 'cancelled'
-                const clickable   = isMatched || isDelivered
+                const clickable   = isMatched || isDelivered || isOpen
 
                 return (
                   <motion.div
@@ -121,7 +121,13 @@ export default function ShipperDashboard() {
                     initial={{ opacity: 0, x: -16 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: 0.15 + i * 0.05 }}
-                    onClick={() => clickable && openBookingDetail(req)}
+                    onClick={() => {
+                      if (isOpen) {
+                        navigate('/shipper/post', { state: { activeShipment: req } })
+                      } else if (isMatched || isDelivered) {
+                        openBookingDetail(req)
+                      }
+                    }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 14 }}>
                       

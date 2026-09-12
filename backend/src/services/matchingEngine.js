@@ -26,12 +26,13 @@ const { isDriverCompliant, estimateTripHours } = require('./complianceEngine')
 
 // ── Config from env ───────────────────────────────────────────────
 // ROUTE_CORRIDOR_METERS: max distance from shipment point to the carrier's route polyline
-// This is the key precision knob — 10km means the carrier's road must pass within 10km of the pickup/dropoff
-const ROUTE_CORRIDOR_METERS   = Number(process.env.ROUTE_CORRIDOR_METERS   || 10000)  // 10km along the actual route
-// FALLBACK_CORRIDOR_METERS: wider search on origin/destination Points when routeLine is missing
-const FALLBACK_CORRIDOR_METERS = Number(process.env.FALLBACK_CORRIDOR_METERS || 100000) // 100km city-level fallback
-const MAX_CORRIDOR_METERS      = ROUTE_CORRIDOR_METERS  // keep alias for sweepForMatches
+// This is the initial spatial filter. It must be at least as large as MAX_DETOUR_KM, 
+// otherwise shipments are dropped by MongoDB before the detour logic runs!
 const MAX_DETOUR_KM          = Number(process.env.MAX_DETOUR_KM          || 150)
+const ROUTE_CORRIDOR_METERS   = Number(process.env.ROUTE_CORRIDOR_METERS   || (MAX_DETOUR_KM * 1000))
+// FALLBACK_CORRIDOR_METERS: wider search on origin/destination Points when routeLine is missing
+const FALLBACK_CORRIDOR_METERS = Number(process.env.FALLBACK_CORRIDOR_METERS || 200000) 
+const MAX_CORRIDOR_METERS      = ROUTE_CORRIDOR_METERS  // keep alias for sweepForMatches
 const MAX_DETOUR_PCT         = Number(process.env.MAX_DETOUR_PCT         || 0.5)
 const MAX_TIME_SLACK_MINUTES = Number(process.env.MAX_TIME_SLACK_MINUTES || 720)
 const AUTO_MATCH_THRESHOLD   = Number(process.env.AUTO_MATCH_THRESHOLD   || 0.85)
@@ -233,17 +234,32 @@ async function matchShipment(shipment) {
 
   for (const listing of candidates) {
     // §5 — direction check
-    if (!isCorrectDirection(listing.routeLine, pickup, dropoff)) continue
+    if (!isCorrectDirection(listing.routeLine, pickup, dropoff)) {
+      console.log(`[matching] dropped ${listing._id} due to direction check`)
+      continue
+    }
     // §6 — time window
-    if (!isTimeCompatible(listing, shipment)) continue
+    if (!isTimeCompatible(listing, shipment)) {
+      console.log(`[matching] dropped ${listing._id} due to time window (listing start: ${new Date(listing.departureWindowStart).toISOString()}, shipment deadline: ${new Date(shipment.deadline).toISOString()})`)
+      continue
+    }
     // §7 — capacity + type
-    if (!isCapacityCompatible(listing, shipment)) continue
-    if (!isTypeCompatible(listing, shipment)) continue
+    if (!isCapacityCompatible(listing, shipment)) {
+      console.log(`[matching] dropped ${listing._id} due to capacity`)
+      continue
+    }
+    if (!isTypeCompatible(listing, shipment)) {
+      console.log(`[matching] dropped ${listing._id} due to type`)
+      continue
+    }
 
     // §8 — driver compliance
     const driver = listing.driverId ? await Driver.findById(listing.driverId) : null
     const addedHours = estimateTripHours(listing, listing.routeDistanceKm * 0.1)
-    if (!isDriverCompliant(driver, addedHours)) continue
+    if (!isDriverCompliant(driver, addedHours)) {
+      console.log(`[matching] dropped ${listing._id} due to driver compliance`)
+      continue
+    }
 
     // §9 — detour (expensive, runs only for final survivors)
     let detourKm = 0
@@ -256,7 +272,10 @@ async function matchShipment(shipment) {
     }
 
     const maxAllowed = Math.max(MAX_DETOUR_KM, MAX_DETOUR_PCT * listing.routeDistanceKm)
-    if (detourKm > maxAllowed) continue
+    if (detourKm > maxAllowed) {
+      console.log(`[matching] dropped ${listing._id} due to detour (${detourKm} > ${maxAllowed})`)
+      continue
+    }
 
     // Pricing
     const { totalINR, breakdown } = computePrice(listing, shipment, detourKm)

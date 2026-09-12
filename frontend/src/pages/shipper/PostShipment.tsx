@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { MapPin, Weight, Box, Clock, Zap, DollarSign, Leaf, Sparkles, ShieldCheck, RefreshCw, ChevronRight, Truck, CheckCircle2, Phone, Star } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { PageShell } from '../../components/layout/Shell'
 import { GlassCard } from '../../components/ui'
 import { LocationPicker, LocationData } from '../../components/ui/LocationPicker'
@@ -15,7 +15,8 @@ export default function PostShipment() {
   const navigate = useNavigate()
   const { token } = useAuthStore() as any
   
-  // Use LocationData for pickup/dropoff
+  const location = useLocation()
+  
   const [pickup, setPickup] = useState<LocationData>({ lat: 0, lng: 0, label: '' })
   const [dropoff, setDropoff] = useState<LocationData>({ lat: 0, lng: 0, label: '' })
   
@@ -36,6 +37,66 @@ export default function PostShipment() {
   const [resending, setResending] = useState(false)
   const [confirmedBooking, setConfirmedBooking] = useState<any>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // Initialize from router state if navigating back to an active shipment
+  useEffect(() => {
+    const s = location.state?.activeShipment
+    if (s && s._id) {
+      setPickup({ lat: s.pickup.coordinates[1], lng: s.pickup.coordinates[0], label: s.pickup.label })
+      setDropoff({ lat: s.dropoff.coordinates[1], lng: s.dropoff.coordinates[0], label: s.dropoff.label })
+      setForm({
+        weightKg: s.weightKg,
+        volumeM3: s.volumeM3,
+        type: s.shipmentType,
+        deadline: s.deadline || '',
+        notes: '',
+      })
+      setShipmentId(s._id)
+      setSubmitted(true)
+      setMatchPhase('waiting')
+      
+      // Calculate remaining time
+      const elapsed = Math.floor((Date.now() - new Date(s.createdAt).getTime()) / 1000)
+      const remaining = Math.max(0, 300 - elapsed)
+      setSecondsLeft(remaining)
+      if (remaining === 0 || elapsed > 120) setCanResend(true)
+      
+      setupSocketListeners()
+      startTimer(remaining)
+    }
+  }, [location.state])
+
+  const setupSocketListeners = () => {
+    const rawToken = token || JSON.parse(localStorage.getItem('xtra-auth') || '{}')?.state?.token
+    if (rawToken) {
+      const sock = connectSocket(rawToken)
+      sock.on('match:found', ({ carriersFound: n }) => {
+        setCarriersFound(n)
+        setMatchPhase('found')
+        setTimeout(() => setMatchPhase('waiting'), 2500)
+      })
+      sock.on('booking:confirmed', async ({ bookingId }) => {
+        try {
+          const res = await bookingApi.getById(bookingId)
+          setConfirmedBooking(res.data)
+        } catch(err) {
+          console.error('Failed to fetch confirmed booking', err)
+          navigate('/shipper') // fallback
+        }
+      })
+    }
+  }
+
+  const startTimer = (initialSeconds: number) => {
+    if (timerRef.current) clearInterval(timerRef.current)
+    timerRef.current = setInterval(() => {
+      setSecondsLeft(s => {
+        if (s <= 1) { clearInterval(timerRef.current!); return 0 }
+        if (initialSeconds - s >= 120) setCanResend(true) // show resend after 2 min elapsed
+        return s - 1
+      })
+    }, 1000)
+  }
 
   const urgency = (() => {
     if (!form.deadline) return null
@@ -71,7 +132,9 @@ export default function PostShipment() {
         volumeM3: form.volumeM3,
         shipmentType: form.type.toLowerCase(),
         earliestPickupTime: new Date().toISOString(),
-        deadline: form.deadline ? new Date(form.deadline).toISOString() : new Date(Date.now() + 24*3600*1000).toISOString(),
+        deadline: form.deadline 
+          ? new Date(new Date(form.deadline).setHours(23, 59, 59, 999)).toISOString() 
+          : new Date(Date.now() + 24*3600*1000).toISOString(),
         expectedPrice: estimatedDiscounted,
         autoAccept: false,
       }
@@ -81,33 +144,10 @@ export default function PostShipment() {
       setShipmentId(newId)
 
       // Connect socket and listen for matches
-      const rawToken = token || JSON.parse(localStorage.getItem('xtra-auth') || '{}')?.state?.token
-      if (rawToken) {
-        const sock = connectSocket(rawToken)
-        sock.on('match:found', ({ carriersFound: n }) => {
-          setCarriersFound(n)
-          setMatchPhase('found')
-          setTimeout(() => setMatchPhase('waiting'), 2500)
-        })
-        sock.on('booking:confirmed', async ({ bookingId }) => {
-          try {
-            const res = await bookingApi.getById(bookingId)
-            setConfirmedBooking(res.data)
-          } catch(err) {
-            console.error('Failed to fetch confirmed booking', err)
-            navigate('/shipper') // fallback
-          }
-        })
-      }
+      setupSocketListeners()
 
       // Start 5-min countdown
-      timerRef.current = setInterval(() => {
-        setSecondsLeft(s => {
-          if (s <= 1) { clearInterval(timerRef.current!); return 0 }
-          if (s === 181) setCanResend(true) // show resend after 2 min
-          return s - 1
-        })
-      }, 1000)
+      startTimer(300)
 
     } catch (err) {
       console.error('Failed to post shipment:', err)
@@ -126,14 +166,7 @@ export default function PostShipment() {
     try {
       await shipmentApi.rematch(shipmentId)
       // Restart timer
-      if (timerRef.current) clearInterval(timerRef.current)
-      timerRef.current = setInterval(() => {
-        setSecondsLeft(s => {
-          if (s <= 1) { clearInterval(timerRef.current!); return 0 }
-          if (s === 181) setCanResend(true)
-          return s - 1
-        })
-      }, 1000)
+      startTimer(300)
     } catch(err) { console.error(err) }
     finally { setResending(false) }
   }
@@ -249,6 +282,31 @@ export default function PostShipment() {
             <span style={{ color: 'var(--text-tertiary)' }}>————</span>
             <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>{to}</span>
             <MapPin size={14} color="var(--rose)" />
+          </div>
+
+          {/* Shipment Details Pill */}
+          <div style={{ display: 'flex', gap: 16, background: 'var(--glass-white)', border: '1px solid var(--glass-border)', borderRadius: 16, padding: '16px 24px', backdropFilter: 'blur(12px)', flexWrap: 'wrap', justifyContent: 'center' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Product</span>
+              <span style={{ fontWeight: 700, fontSize: '0.95rem', textTransform: 'capitalize' }}>{form.type}</span>
+            </div>
+            <div style={{ width: 1, background: 'var(--glass-border)' }} />
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Capacity</span>
+              <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>{form.weightKg} kg / {form.volumeM3} m³</span>
+            </div>
+            <div style={{ width: 1, background: 'var(--glass-border)' }} />
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Expected Price</span>
+              <span style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--emerald)' }}>₹{estimatedDiscounted.toLocaleString()}</span>
+            </div>
+            <div style={{ width: 1, background: 'var(--glass-border)' }} />
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Deadline</span>
+              <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>
+                {form.deadline ? new Date(form.deadline).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : new Date(Date.now() + 24*3600*1000).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+              </span>
+            </div>
           </div>
 
           {/* Dynamic status text */}
